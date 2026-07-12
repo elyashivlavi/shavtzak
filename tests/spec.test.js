@@ -247,6 +247,17 @@ test('dutyBreakdown_ splits guard hours / standby / patrol', () => {
   assert(guardBusy && guardBusy.standby_hours >= 24, 'guard should have standby hours');
 });
 
+// §7.3 admin sets join/leave window via updateSoldier
+test('updateSoldier persists join/leave (start_date/end_date)', () => {
+  reset();
+  const id = G.readTable('soldiers').find((s) => s.name === 'מתן כהן').id;
+  G.updateSoldier(id, { start_date: '2026-08-01 12:00', end_date: '2026-08-10 12:00' }, 'admin1234');
+  const s = G.readTable('soldiers').find((x) => x.id === id);
+  assert.strictEqual(s.start_date, '2026-08-01 12:00');
+  assert.strictEqual(s.end_date, '2026-08-10 12:00');
+  assert.throws(() => G.updateSoldier(id, { start_date: '' }, 'wrong'), 'must require admin');
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');

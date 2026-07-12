@@ -49,6 +49,9 @@
   .datenav { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 14px; }
   .datenav button { padding: 8px 14px; }
   .datenav input[type=date] { width: auto; font-weight: 600; text-align: center; }
+  .joinleave { display: flex; gap: 8px; flex-wrap: wrap; }
+  .joinleave label { display: flex; flex-direction: column; gap: 2px; }
+  .joinleave input { width: auto; font-size: 12px; padding: 4px 6px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 12px; }
@@ -485,7 +488,10 @@ function viewSoldiers() {
       '<td class="kv">' + (esc(s.email) || '—') + '</td>' +
       '<td>' + roleName(s.role) + '</td>' +
       '<td>' + (s.guard_eligible + '' !== 'FALSE' && s.guard_eligible !== false ? 'כן' : 'לא') + '</td>' +
-      '<td class="kv">' + (s.start_date || s.end_date ? (esc(s.start_date || '…') + ' – ' + esc(s.end_date || '…')) : 'קבוע') + '</td>' +
+      '<td><div class="joinleave">' +
+        '<label class="kv">מצטרף<input type="datetime-local" class="sd-start" data-id="' + esc(s.id) + '" value="' + toDTLocal(s.start_date) + '"></label>' +
+        '<label class="kv">עוזב<input type="datetime-local" class="sd-end" data-id="' + esc(s.id) + '" value="' + toDTLocal(s.end_date) + '"></label>' +
+        '</div></td>' +
       '<td>' + (inactive ? 'לא פעיל' :
         '<button class="danger secondary" data-remove="' + esc(s.id) + '" style="padding:4px 10px;font-size:12px">הורד</button>') +
       '</td></tr>';
@@ -501,8 +507,8 @@ function viewSoldiers() {
     '<button id="btn-add">הוסף</button>' +
     '</div></div>' +
     '<div class="card"><h2>רשימת חיילים</h2>' +
-    '<table><tr><th>שם</th><th>טלפון</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th>בבסיס (מ׳–עד)</th><th></th></tr>' + rows + '</table>' +
-    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). טלפון מוצג לכולם. <strong>בבסיס</strong>: ערוך <code>start_date</code>/<code>end_date</code> (תאריך+שעה) בגיליון <code>soldiers</code> — ריק = קבוע. משפיע על "ייצר שבוע".</p></div>';
+    '<table><tr><th>שם</th><th>טלפון</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th>נוכחות בבסיס</th><th></th></tr>' + rows + '</table>' +
+    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). טלפון מוצג לכולם. <strong>נוכחות</strong>: הגדר מתי חייל <strong>מצטרף/עוזב</strong> — מחוץ לחלון הוא לא ישובץ. ריק בשניהם = קבוע בבסיס. משפיע על "ייצר שבוע".</p></div>';
 }
 
 function wireSoldiers() {
@@ -521,7 +527,28 @@ function wireSoldiers() {
       callAdmin('removeSoldier', [btn.getAttribute('data-remove')], function () { toast('הורד'); reload(); });
     };
   });
+  function wireWindow(cls, field) {
+    Array.prototype.forEach.call(document.querySelectorAll(cls), function (inp) {
+      inp.onchange = function () {
+        var fields = {};
+        fields[field] = fromDTLocal(inp.value);
+        callAdmin('updateSoldier', [inp.getAttribute('data-id'), fields], function () { toast('עודכן'); reload(); });
+      };
+    });
+  }
+  wireWindow('.sd-start', 'start_date');
+  wireWindow('.sd-end', 'end_date');
 }
+
+// "2026-07-13 12:00" (או תאריך בלבד) → ערך datetime-local "2026-07-13T12:00"
+function toDTLocal(s) {
+  if (!s) return '';
+  s = String(s).replace(' ', 'T');
+  if (s.indexOf('T') < 0) s += 'T00:00';
+  return s.slice(0, 16);
+}
+// ערך datetime-local → מחרוזת לגיליון "2026-07-13 12:00" (ריק = ניקוי החלון)
+function fromDTLocal(v) { return v ? String(v).replace('T', ' ') : ''; }
 
 // ---- הוגנות (מנהל) ----
 function viewFairness() {
