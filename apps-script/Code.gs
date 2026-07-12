@@ -100,8 +100,11 @@ function getBootstrap() {
   return out;
 }
 
-/** מייצר את הבלוק הבא (24 שעות) לטיוטה — לפי הוגנות. לא נחשף לחיילים עד לאישור. */
-function generateNextRotation() {
+/**
+ * מייצר את הבלוק הבא (24 שעות) לטיוטה — לפי הוגנות. לא נחשף לחיילים עד לאישור.
+ * forcePatrolIds — רשימת מזהי חיילים שחייבים להיות בפטרול בבלוק הזה (לא ייכנסו לעמדות).
+ */
+function generateNextRotation(forcePatrolIds) {
   requireAdmin_();
   var cfg = getConfigAll();
   var anchorHour = parseInt(cfg.anchor_hour, 10);
@@ -111,13 +114,16 @@ function generateNextRotation() {
 
   var blockDate = nextBlockDate_();
 
+  var forced = {};
+  (forcePatrolIds || []).forEach(function (id) { forced[id] = true; });
+
   var soldiers = readTable(SHEET_SOLDIERS).filter(function (s) {
     return truthy_(s.active);
   });
   var stats = statsMap_();
 
-  // מועמדים לשמירה: פעילים + כשירים לעמדות (אסי הסמל מסומן false ולכן לא ייכנס)
-  var guardPool = soldiers.filter(function (s) { return truthy_(s.guard_eligible); });
+  // מועמדים לשמירה: פעילים + כשירים לעמדות, למעט מי שסומן "חייב בפטרול" (ואסי הסמל)
+  var guardPool = soldiers.filter(function (s) { return truthy_(s.guard_eligible) && !forced[s.id]; });
 
   guardPool.sort(function (a, b) {
     var ha = stats[a.id] ? Number(stats[a.id].cumulative_guard_hours) : 0;
@@ -485,6 +491,9 @@ var SEED_SOLDIERS = [
   ['אסי פרץ',        '',                          'sergeant', false, 'סמל — תמיד בפטרול, אף פעם לא בעמדות']
 ];
 
+// חיילים שחייבים בפטרול בבלוק ההתחלתי (היום) — לא ייכנסו לעמדות בבלוק הראשון.
+var SEED_FORCE_PATROL = ['גלעד דביר', 'אביאל גיאת'];
+
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -553,7 +562,10 @@ function seedFirstBlock_() {
   var shiftsPerDay = Math.round(24 / shiftHours);
 
   var soldiers = readTable(SHEET_SOLDIERS).filter(function (s) { return truthy_(s.active); });
-  var pool = soldiers.filter(function (s) { return truthy_(s.guard_eligible); });
+  // כשירים לעמדות, למעט מי שחייב בפטרול היום (גלעד דביר, אביאל גיאת)
+  var pool = soldiers.filter(function (s) {
+    return truthy_(s.guard_eligible) && SEED_FORCE_PATROL.indexOf(s.name) === -1;
+  });
 
   // מסדרים כך שעופר קאסה ראשון (שומר מ-12:00)
   pool.sort(function (a, b) {

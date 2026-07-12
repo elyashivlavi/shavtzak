@@ -230,8 +230,19 @@ function editSelect(blockDate, position, slot, currentId) {
 // ---- תצוגת טיוטה (מנהל) ----
 function viewDraft() {
   var b = STATE.boot;
+  var eligible = (b.soldiers || []).filter(function (s) {
+    return (s.active + '' !== 'FALSE' && s.active !== false) &&
+           (s.guard_eligible + '' !== 'FALSE' && s.guard_eligible !== false);
+  });
+  var forceBox = '<details style="margin:8px 0"><summary class="muted" style="cursor:pointer">חייבים בפטרול בבלוק הבא (לא יעלו לעמדות)</summary>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">' +
+    eligible.map(function (s) {
+      return '<label class="muted"><input type="checkbox" class="force-patrol" value="' + esc(s.id) + '"> ' + esc(s.name) + '</label>';
+    }).join('') + '</div></details>';
+
   var head = '<div class="card"><h2>ניהול טיוטה</h2>' +
     '<p class="muted">הטיוטה נראית רק לך. החיילים ימשיכו לראות את השיבוץ הקודם עד שתלחץ "אישור ופרסום".</p>' +
+    forceBox +
     '<div class="btn-row">' +
     '<button id="btn-generate">ייצר שיבוץ הבא (24ש\')</button>' +
     (b.hasDraft ? '<button id="btn-publish">✓ אישור ופרסום</button>' +
@@ -248,8 +259,10 @@ function viewDraft() {
 function wireDraft() {
   var g = document.getElementById('btn-generate');
   if (g) g.onclick = function () {
+    var forced = Array.prototype.map.call(document.querySelectorAll('.force-patrol:checked'),
+      function (el) { return el.value; });
     g.disabled = true;
-    call('generateNextRotation', [], function (res) {
+    call('generateNextRotation', [forced], function (res) {
       toast('נוצרה טיוטה לתאריך ' + res.blockDate); reload();
     });
   };
