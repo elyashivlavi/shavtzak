@@ -19,6 +19,8 @@ Requirements:
 - **No mandatory login** for viewing. The public UI must work for an unauthenticated visitor.
 - Since there is no login, a **soldier is identified in the personal view by picking their name** from a list (not by session identity).
 - Admin actions are gated by a password check on every privileged operation (the secret must **never** be sent to non-admin clients).
+- Admin mode **persists on the device for 24 hours** (so the password isn't re-entered each visit); after 24h, or if the stored password no longer validates, it's cleared and re-prompted.
+- **No double-booking:** the system must reject any edit that places the same soldier in two positions at overlapping times.
 
 ---
 
@@ -150,7 +152,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 - **Date navigation** (`‹ [date, default today] › היום`) — scopes **only the shift list below it**, not the "כרגע"/next/contact cards.
 - **List** of the soldier's shifts for the selected day (guard shifts with times + standby tag; patrols).
 
-### 7.2 Tab "שבצק" (Board) — public
+### 7.2 Tab "שבצק" (Board) — public (admin can edit)
 - **Date navigation** identical to the personal tab (shared selected date). Defaults to today; prev/next step one day.
 - **"כוח אפקטיבי" (Effective force)** summary for the selected day (headcount).
 - For the selected day's block, **three titled cards**:
@@ -158,6 +160,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
   - **כוננות (Standby)** — the standby soldiers, shown as **two sets**: **עד 12:00** (the previous block's guards) and **מ-12:00** (this block's guards). A calendar day is covered by two consecutive blocks.
   - **פטרול (Patrol)** — the patrol soldiers as a **single merged list** (no morning/evening split).
 - If no schedule exists for the chosen date, show a clear empty message.
+- **Admin inline switch:** an admin sees each guard slot as a dropdown and can swap the assigned soldier directly on the published board. On save the server **rejects any change that double-books a soldier at an overlapping time** (a soldier may not be in two positions at once); it also keeps guard/patrol consistent (the incoming soldier is removed from patrol; the displaced one is moved to patrol) and recomputes fairness stats.
 
 ### 7.3 Admin-only tabs (behind password)
 - **"טיוטה" (Draft):** generate next block, **generate week (7 days)**, optionally mark "must-patrol" soldiers for the next block, edit any guard slot inline, then **Approve & Publish** or **Discard**. A banner reminds that the draft is not visible to soldiers.

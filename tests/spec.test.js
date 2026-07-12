@@ -258,6 +258,34 @@ test('updateSoldier persists join/leave (start_date/end_date)', () => {
   assert.throws(() => G.updateSoldier(id, { start_date: '' }, 'wrong'), 'must require admin');
 });
 
+// §1/§7.2 no double-booking detection
+test('findDoubleBooking_ flags overlaps, allows adjacent', () => {
+  const ok = [
+    { soldier_id: 'x', soldier_name: 'X', position: 'guard', start: '12:00', end: '15:00' },
+    { soldier_id: 'x', soldier_name: 'X', position: 'guard', start: '15:00', end: '18:00' },
+  ];
+  assert.strictEqual(G.findDoubleBooking_(ok, 12), null);
+  const bad = [
+    { soldier_id: 'x', soldier_name: 'X', position: 'guard', start: '12:00', end: '15:00' },
+    { soldier_id: 'x', soldier_name: 'X', position: 'patrol', start: '13:00', end: '' },
+  ];
+  assert.strictEqual(G.findDoubleBooking_(bad, 12), 'X');
+});
+
+// §7.2 admin board switch on published schedule
+test('editBoardAssignment swaps guard, de-conflicts patrol, requires admin', () => {
+  reset();
+  const pub = G.readTable('schedule_published');
+  const grow = pub.find((r) => r.position === 'guard');
+  const patrolSoldier = pub.find((r) => r.block_date === grow.block_date && r.position === 'patrol');
+  G.editBoardAssignment(grow.block_date, grow.slot, patrolSoldier.soldier_id, 'admin1234');
+  const after = G.readTable('schedule_published');
+  const ng = after.find((r) => r.block_date === grow.block_date && r.position === 'guard' && String(r.slot) === String(grow.slot));
+  assert.strictEqual(ng.soldier_id, patrolSoldier.soldier_id);
+  assert(!after.some((r) => r.block_date === grow.block_date && r.position === 'patrol' && r.soldier_id === patrolSoldier.soldier_id), 'incoming still on patrol');
+  assert.throws(() => G.editBoardAssignment(grow.block_date, grow.slot, patrolSoldier.soldier_id, 'wrong'));
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');

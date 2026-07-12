@@ -113,7 +113,14 @@
 <div class="toast" id="toast"></div>
 
 <script>
-var STATE = { boot: null, adminPw: '',
+var ADMIN_TTL = 24 * 60 * 60 * 1000; // תוקף מצב מנהל: 24 שעות
+function loadAdminPw() {
+  try { var a = JSON.parse(localStorage.getItem('shavtzak_admin') || 'null'); if (a && a.pw && (Date.now() - a.ts) < ADMIN_TTL) return a.pw; } catch (e) {}
+  return '';
+}
+function saveAdminPw(pw) { try { localStorage.setItem('shavtzak_admin', JSON.stringify({ pw: pw, ts: Date.now() })); } catch (e) {} }
+function clearAdminPw() { try { localStorage.removeItem('shavtzak_admin'); } catch (e) {} }
+var STATE = { boot: null, adminPw: loadAdminPw(),
   selectedId: (function () { try { return localStorage.getItem('shavtzak_soldier') || ''; } catch (e) { return ''; } })() };
 var CURRENT_TAB = null;
 
@@ -152,6 +159,7 @@ function render() {
   document.getElementById('app').classList.remove('hidden');
 
   var isAdmin = b.user && b.user.isAdmin;
+  if (STATE.adminPw && !isAdmin) { STATE.adminPw = ''; clearAdminPw(); } // סיסמה שמורה נדחתה/פגה
   document.getElementById('who').innerHTML = isAdmin
     ? '<span class="badge">מצב מנהל</span> <button class="ghost" style="padding:4px 10px;font-size:12px" onclick="adminLogout()">יציאה</button>'
     : '<button class="ghost" style="padding:4px 10px;font-size:12px" onclick="adminLogin()">מצב מנהל</button>';
@@ -190,12 +198,12 @@ function adminLogin() {
   if (pw == null) return;
   STATE.adminPw = pw;
   loadBoot(function () {
-    if (STATE.boot.user && STATE.boot.user.isAdmin) { toast('מצב מנהל פעיל'); CURRENT_TAB = 'draft'; }
-    else { STATE.adminPw = ''; toast('סיסמה שגויה', true); }
+    if (STATE.boot.user && STATE.boot.user.isAdmin) { saveAdminPw(pw); toast('מצב מנהל פעיל (24ש\')'); CURRENT_TAB = 'draft'; }
+    else { STATE.adminPw = ''; clearAdminPw(); toast('סיסמה שגויה', true); }
     render();
   });
 }
-function adminLogout() { STATE.adminPw = ''; CURRENT_TAB = 'board'; reload(); }
+function adminLogout() { STATE.adminPw = ''; clearAdminPw(); CURRENT_TAB = 'board'; reload(); }
 
 // ---- כלי יצירת קשר ----
 function normPhone(p) { return String(p || '').replace(/[^\d]/g, ''); }
@@ -304,7 +312,8 @@ function viewBoard() {
   var effective = block.patrol.length ? (Object.keys(block.patrol.reduce(function (a, it) { a[it.soldier_id] = 1; return a; }, {})).length + standbySet_(block).length) : standbySet_(block).length;
   var header = '<div class="card now-card"><div><div class="muted">כוח אפקטיבי · ' + esc(block.block_date) + '</div><div class="now-status">' + effective + ' חיילים</div></div>' +
     '<div class="pill count">רוטציה 12:00–12:00</div></div>';
-  return nav + header + renderBoardBlock(block, view[idx - 1]);
+  var isAdmin = STATE.boot.user && STATE.boot.user.isAdmin;
+  return nav + header + renderBoardBlock(block, view[idx - 1], isAdmin);
 }
 
 // ניווט תאריך משותף (שבצק + לוז אישי)
@@ -326,7 +335,20 @@ function wireDateNav() {
   var t = document.getElementById('bd-today');
   if (t) t.onclick = function () { STATE.boardDate = todayStr(); render(); };
 }
-function wireBoard() { wireDateNav(); }
+function boardEditSelect(blockDate, slot, currentId) {
+  var opts = (STATE.boot.soldiers || []).filter(function (s) { return s.active + '' !== 'FALSE' && s.active !== false; })
+    .map(function (s) { return '<option value="' + esc(s.id) + '"' + (s.id === currentId ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('');
+  return '<select class="board-edit" data-date="' + esc(blockDate) + '" data-slot="' + esc(slot) + '">' + opts + '</select>';
+}
+function wireBoard() {
+  wireDateNav();
+  Array.prototype.forEach.call(document.querySelectorAll('.board-edit'), function (sel) {
+    sel.onchange = function () {
+      callAdmin('editBoardAssignment', [sel.getAttribute('data-date'), sel.getAttribute('data-slot'), sel.value],
+        function () { toast('עודכן ופורסם ✓'); reload(); });
+    };
+  });
+}
 
 // רשימת השומרים בכוננות (standby) של בלוק — כל חייל פעם אחת
 function standbySet_(block) {
@@ -344,13 +366,14 @@ function chipsHtml_(arr, cls) {
     return '<span class="chip ' + cls + '">' + esc(n) + '</span>'; }).join('') + '</div>';
 }
 
-// לוח שבצק: שלושה כרטיסים לכל בלוק — עמדה / כוננות / פטרול
-function renderBoardBlock(block, prevBlock) {
+// לוח שבצק: שלושה כרטיסים לכל בלוק — עמדה / כוננות / פטרול. editable=מנהל יכול להחליף חייל.
+function renderBoardBlock(block, prevBlock, editable) {
   // עמדה — סבב משמרות השמירה
   var g = '<table><tr><th>משמרת</th><th>שעות</th><th>חייל</th></tr>';
   block.guard.forEach(function (it) {
+    var cell = editable ? boardEditSelect(block.block_date, it.slot, it.soldier_id) : esc(it.soldier_name);
     g += '<tr class="row-guard"><td>' + esc(it.day_label) + '</td><td>' +
-         esc(it.start) + '–' + esc(it.end) + '</td><td>' + esc(it.soldier_name) + '</td></tr>';
+         esc(it.start) + '–' + esc(it.end) + '</td><td>' + cell + '</td></tr>';
   });
   g += '</table>';
 

@@ -385,8 +385,77 @@ function editAssignment(blockDate, position, slot, newSoldierId, pw) {
     }
   });
   if (!found) throw new Error('המשבצת לא נמצאה.');
+  var dc = findDoubleBooking_(draft.filter(function (r) { return r.block_date === blockDate; }), parseInt(getConfigAll().anchor_hour, 10));
+  if (dc) throw new Error('התנגשות: ' + dc + ' משובץ פעמיים באותו זמן.');
   writeTable(SHEET_DRAFT, draft);
   return { ok: true };
+}
+
+/** מחליף חייל במשמרת שמירה בלוח המפורסם (שבצק), עם ולידציית אי-כפילות. משנה גם פטרול לשמירת עקביות. */
+function editBoardAssignment(blockDate, slot, newSoldierId, pw) {
+  requireAdmin_(pw);
+  var cfg = getConfigAll();
+  var anchorHour = parseInt(cfg.anchor_hour, 10);
+  var pub = readTable(SHEET_PUBLISHED);
+  var soldiers = soldiersMap_();
+  var target = soldiers[newSoldierId];
+  if (!target) throw new Error('חייל לא נמצא.');
+
+  var found = false, oldId = null;
+  pub.forEach(function (r) {
+    if (r.block_date === blockDate && r.position === 'guard' && String(r.slot) === String(slot)) {
+      oldId = r.soldier_id; r.soldier_id = newSoldierId; r.soldier_name = target.name; found = true;
+    }
+  });
+  if (!found) throw new Error('המשמרת לא נמצאה.');
+
+  // החייל הנכנס לא יכול להישאר בפטרול באותו בלוק
+  pub = pub.filter(function (r) { return !(r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === newSoldierId); });
+
+  // החייל שיצא — אם אינו שומר יותר בבלוק ואינו בפטרול, הכנס אותו לפטרול (בוקר+ערב) לשמירת עקביות
+  var oldStillGuard = pub.some(function (r) { return r.block_date === blockDate && r.position === 'guard' && r.soldier_id === oldId; });
+  var oldInPatrol = pub.some(function (r) { return r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === oldId; });
+  if (oldId && oldId !== newSoldierId && !oldStillGuard && !oldInPatrol && soldiers[oldId] && truthy_(soldiers[oldId].active)) {
+    ['morning', 'evening'].forEach(function (part) {
+      pub.push({
+        block_date: blockDate, position: 'patrol', slot: part,
+        start: part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening, end: '',
+        day_label: part === 'morning' ? 'בוקר' : 'ערב',
+        soldier_id: oldId, soldier_name: soldiers[oldId].name, standby: '', note: ''
+      });
+    });
+  }
+
+  var conflict = findDoubleBooking_(pub.filter(function (r) { return r.block_date === blockDate; }), anchorHour);
+  if (conflict) throw new Error('התנגשות: ' + conflict + ' משובץ פעמיים באותו זמן.');
+
+  pub.sort(scheduleSort_);
+  writeTable(SHEET_PUBLISHED, pub);
+  recomputeStats_();
+  return { ok: true };
+}
+
+/** דקות מוחלטות מתחילת הבלוק (שעת העיגון). */
+function toAbsMin_(hhmm, anchorHour) {
+  var h = parseHourNum_(hhmm);
+  var mm = (String(hhmm).match(/:(\d{2})/) || [])[1];
+  return ((h - anchorHour + 24) % 24) * 60 + (mm ? parseInt(mm, 10) : 0);
+}
+
+/** מחזיר שם חייל שמשובץ פעמיים בחפיפת-זמן באותו בלוק, או null. פטרול = נקודת-זמן. */
+function findDoubleBooking_(rows, anchorHour) {
+  var byS = {};
+  rows.forEach(function (r) {
+    var a = toAbsMin_(r.start, anchorHour);
+    var b = r.position === 'guard' ? a + shiftDurationHours_(r.start, r.end) * 60 : a + 1;
+    (byS[r.soldier_id] = byS[r.soldier_id] || []).push({ a: a, b: b, name: r.soldier_name });
+  });
+  var offender = null;
+  Object.keys(byS).forEach(function (id) {
+    var iv = byS[id].sort(function (x, y) { return x.a - y.a; });
+    for (var i = 1; i < iv.length; i++) if (iv[i].a < iv[i - 1].b) offender = iv[i].name;
+  });
+  return offender;
 }
 
 // ================================================================
