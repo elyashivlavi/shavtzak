@@ -15,7 +15,7 @@ var SHEET_STATS     = 'stats';
 var SHEET_CONFIG    = 'config';
 
 // ===== כותרות =====
-var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note'];
+var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date'];
 var SCHEDULE_HEADERS = ['block_date', 'position', 'slot', 'start', 'end', 'day_label',
                         'soldier_id', 'soldier_name', 'standby', 'note'];
 var STATS_HEADERS    = ['soldier_id', 'name', 'cumulative_guard_hours', 'guard_blocks', 'last_guard_block'];
@@ -23,8 +23,9 @@ var CONFIG_HEADERS   = ['key', 'value'];
 
 // ברירות מחדל לקונפיגורציה
 var DEFAULT_CONFIG = {
-  anchor_hour:      '12',       // שעת עיגון הרוטציה (12:00 בצהריים)
-  shift_hours:      '3',        // אורך משמרת שמירה
+  anchor_hour:      '12',       // שעת עיגון הרוטציה (12:00 בצהריים) — גבול "היום/למחרת" ותחילת הבלוק
+  shift_hours:      '3',        // אורך משמרת ברירת מחדל (אם shift_starts ריק)
+  shift_starts:     '12:00,15:00,18:00,21:00,00:00,03:00,06:00,09:00', // שעות תחילת משמרות השמירה (עריכה בגיליון)
   guard_count:      '4',        // כמה חיילים על השמירה בכל בלוק
   patrol_morning:   '06:00',    // שעת פטרול בוקר
   patrol_evening:   '18:00',    // שעת פטרול ערב
@@ -82,6 +83,42 @@ function requireAdmin_(pw) {
   return true;
 }
 
+/**
+ * חלונות הנוכחות של החיילים (start_date/end_date כ-Date+שעה גולמי מהגיליון).
+ * קורא גולמי (לא דרך readTable/cellStr_) כדי לשמור על ה-Date להשוואת epoch.
+ */
+function soldierWindows_() {
+  var sheet = ss_().getSheetByName(SHEET_SOLDIERS);
+  var values = sheet.getDataRange().getValues();
+  var map = {};
+  if (values.length < 2) return map;
+  var h = values[0];
+  var iId = h.indexOf('id'), iS = h.indexOf('start_date'), iE = h.indexOf('end_date');
+  for (var r = 1; r < values.length; r++) {
+    var id = values[r][iId];
+    if (!id) continue;
+    map[id] = {
+      start: (iS >= 0 && values[r][iS] instanceof Date) ? values[r][iS].getTime() : null,
+      end:   (iE >= 0 && values[r][iE] instanceof Date) ? values[r][iE].getTime() : null
+    };
+  }
+  return map;
+}
+
+/** האם החייל זמין (בבסיס) ברגע נתון (epoch ms). חלון ריק = תמיד זמין. */
+function availableAt_(win, instant) {
+  if (!win) return true;
+  if (win.start != null && instant < win.start) return false;
+  if (win.end != null && instant > win.end) return false;
+  return true;
+}
+
+/** רגע תחילת הבלוק (שעת העיגון, בשעון הסקריפט = Asia/Jerusalem) כ-epoch ms. */
+function blockStartInstant_(blockDate, anchorHour) {
+  var p = String(blockDate).split('-');
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), anchorHour, 0, 0).getTime();
+}
+
 // ================================================================
 //  API לצד הלקוח
 // ================================================================
@@ -122,84 +159,109 @@ function getBootstrap(pw) {
 function generateNextRotation(forcePatrolIds, pw) {
   requireAdmin_(pw);
   var cfg = getConfigAll();
-  var anchorHour = parseInt(cfg.anchor_hour, 10);
-  var shiftHours = parseInt(cfg.shift_hours, 10);
-  var guardCount = parseInt(cfg.guard_count, 10);
-  var shiftsPerDay = Math.round(24 / shiftHours);
-
-  var blockDate = nextBlockDate_();
-
   var forced = {};
   (forcePatrolIds || []).forEach(function (id) { forced[id] = true; });
 
+  var blockDate = nextBlockDate_();
+  var block = buildBlockRows_(blockDate, statsMap_(), forced, soldierWindows_(), cfg);
+  writeTable(SHEET_DRAFT, block.rows);
+  return { ok: true, blockDate: blockDate, guards: block.guards.map(function (g) { return g.name; }) };
+}
+
+/** מייצר שבצ"ק לשבוע שלם (ברירת מחדל 7 בלוקים של 24ש') לטיוטה, לפי הוגנות מצטברת וחלונות נוכחות. */
+function generateWeek(days, pw) {
+  requireAdmin_(pw);
+  var cfg = getConfigAll();
+  var n = parseInt(days, 10) || 7;
+  var stats = statsMap_();          // מפת הוגנות רצה — מתעדכנת בין הבלוקים
+  var windows = soldierWindows_();
+  var rows = [], summary = [], bd = nextBlockDate_();
+  for (var i = 0; i < n; i++) {
+    var block = buildBlockRows_(bd, stats, {}, windows, cfg);
+    rows = rows.concat(block.rows);
+    advanceStats_(stats, block.guards, bd, block.hoursPerGuard);
+    summary.push({ date: bd, guards: block.guards.map(function (g) { return g.name; }) });
+    bd = advanceDate_(bd, 1);
+  }
+  writeTable(SHEET_DRAFT, rows);
+  return { ok: true, days: n, summary: summary };
+}
+
+/**
+ * בונה את שורות בלוק ה-24ש' (שמירה + פטרול) לתאריך נתון, לפי מפת הוגנות וחלונות נוכחות.
+ * לא כותב לגיליון — מחזיר { rows, guards, hoursPerGuard }.
+ */
+function buildBlockRows_(blockDate, stats, forced, windows, cfg) {
+  var anchorHour = parseInt(cfg.anchor_hour, 10);
+  var guardCount = parseInt(cfg.guard_count, 10);
+  var starts = shiftStarts_(cfg);
+  var shiftsPerDay = starts.length;
+  var instant = blockStartInstant_(blockDate, anchorHour);
+
+  // רק חיילים פעילים שנמצאים בבסיס בזמן הבלוק (חלון נוכחות ריק = תמיד)
   var soldiers = readTable(SHEET_SOLDIERS).filter(function (s) {
-    return truthy_(s.active);
+    return truthy_(s.active) && availableAt_(windows[s.id], instant);
   });
-  var stats = statsMap_();
 
-  // מועמדים לשמירה: פעילים + כשירים לעמדות, למעט מי שסומן "חייב בפטרול" (ואסי הסמל)
   var guardPool = soldiers.filter(function (s) { return truthy_(s.guard_eligible) && !forced[s.id]; });
-
   guardPool.sort(function (a, b) {
     var ha = stats[a.id] ? Number(stats[a.id].cumulative_guard_hours) : 0;
     var hb = stats[b.id] ? Number(stats[b.id].cumulative_guard_hours) : 0;
-    if (ha !== hb) return ha - hb;                       // הכי מעט שעות שמירה קודם
+    if (ha !== hb) return ha - hb;
     var la = stats[a.id] ? String(stats[a.id].last_guard_block) : '';
     var lb = stats[b.id] ? String(stats[b.id].last_guard_block) : '';
-    if (la !== lb) return la < lb ? -1 : 1;              // מי ששמר הכי מזמן קודם
+    if (la !== lb) return la < lb ? -1 : 1;
     return String(a.name).localeCompare(String(b.name));
   });
-
   if (guardPool.length < guardCount) {
-    throw new Error('אין מספיק חיילים כשירים לשמירה (' + guardPool.length + ' מתוך ' + guardCount + ' נדרשים).');
+    throw new Error('אין מספיק חיילים כשירים לשמירה בתאריך ' + blockDate +
+      ' (' + guardPool.length + ' מתוך ' + guardCount + ' נדרשים).');
   }
   var guards = guardPool.slice(0, guardCount);
   var guardIds = {};
   guards.forEach(function (g) { guardIds[g.id] = true; });
 
   var rows = [];
-
-  // --- משמרות שמירה: כל אחד עושה 2 משמרות של 3 שעות, עם 9 שעות מנוחה ביניהן ---
   for (var slot = 0; slot < shiftsPerDay; slot++) {
     var guard = guards[slot % guardCount];
-    var startH = anchorHour + slot * shiftHours;
-    var endH = startH + shiftHours;
+    var start = starts[slot];
+    var end = starts[(slot + 1) % shiftsPerDay];
     rows.push({
-      block_date: blockDate,
-      position: 'guard',
-      slot: String(slot),
-      start: hh_(startH),
-      end: hh_(endH),
-      day_label: dayLabel_(startH),
-      soldier_id: guard.id,
-      soldier_name: guard.name,
-      standby: 'TRUE',           // בשמירה => בכוננות לכל אורך ה-24 שעות
-      note: ''
+      block_date: blockDate, position: 'guard', slot: String(slot),
+      start: start, end: end, day_label: parseHourNum_(start) < anchorHour ? 'למחרת' : 'היום',
+      soldier_id: guard.id, soldier_name: guard.name, standby: 'TRUE', note: ''
     });
   }
-
-  // --- פטרול: כל שאר החיילים הפעילים (בוקר + ערב) ---
   var patrol = soldiers.filter(function (s) { return !guardIds[s.id]; });
   ['morning', 'evening'].forEach(function (part) {
     var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
     patrol.forEach(function (s) {
       rows.push({
-        block_date: blockDate,
-        position: 'patrol',
-        slot: part,
-        start: time,
-        end: '',
+        block_date: blockDate, position: 'patrol', slot: part, start: time, end: '',
         day_label: part === 'morning' ? 'בוקר' : 'ערב',
-        soldier_id: s.id,
-        soldier_name: s.name,
-        standby: '',
-        note: ''
+        soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
       });
     });
   });
+  return { rows: rows, guards: guards, hoursPerGuard: 24 / guardCount };
+}
 
-  writeTable(SHEET_DRAFT, rows);
-  return { ok: true, blockDate: blockDate, guards: guards.map(function (g) { return g.name; }) };
+/** מעדכן מפת הוגנות רצה אחרי בלוק (לצורך ייצור שבועי מצטבר) — לא כותב לגיליון. */
+function advanceStats_(stats, guards, blockDate, hoursPerGuard) {
+  guards.forEach(function (g) {
+    var s = stats[g.id] || { soldier_id: g.id, name: g.name, cumulative_guard_hours: 0, guard_blocks: 0, last_guard_block: '' };
+    s.cumulative_guard_hours = Number(s.cumulative_guard_hours || 0) + hoursPerGuard;
+    s.guard_blocks = Number(s.guard_blocks || 0) + 1;
+    s.last_guard_block = blockDate;
+    stats[g.id] = s;
+  });
+}
+
+/** מקדם מחרוזת תאריך yyyy-MM-dd ב-n ימים. */
+function advanceDate_(dateStr, n) {
+  var d = parseDate_(dateStr);
+  d.setDate(d.getDate() + n);
+  return fmtDate_(d);
 }
 
 /** אישור ופרסום: מעתיק את הטיוטה ל"מפורסם" ומעדכן את צבירת השעות. רק אחרי זה החיילים רואים. */
@@ -268,7 +330,9 @@ function addSoldier(name, email, role, guardEligible, phone, pw) {
     active: 'TRUE',
     guard_eligible: guardEligible === false ? 'FALSE' : 'TRUE',
     phone: phone || '',
-    internal_note: ''
+    internal_note: '',
+    start_date: '',
+    end_date: ''
   });
   writeTable(SHEET_SOLDIERS, soldiers);
   return { ok: true, id: id };
@@ -280,7 +344,7 @@ function updateSoldier(id, fields, pw) {
   var found = false;
   soldiers.forEach(function (s) {
     if (s.id === id) {
-      ['name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note'].forEach(function (k) {
+      ['name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date'].forEach(function (k) {
         if (fields[k] !== undefined) s[k] = fields[k];
       });
       found = true;
@@ -387,9 +451,9 @@ function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
  */
 function cellStr_(v) {
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    return v.getUTCFullYear() < 1900
-      ? Utilities.formatDate(v, 'GMT', 'HH:mm')
-      : Utilities.formatDate(v, 'GMT', 'yyyy-MM-dd');
+    if (v.getUTCFullYear() < 1900) return Utilities.formatDate(v, 'GMT', 'HH:mm');       // שעה בלבד (משמרות)
+    if (v.getUTCHours() === 0 && v.getUTCMinutes() === 0) return Utilities.formatDate(v, 'GMT', 'yyyy-MM-dd'); // תאריך בלבד
+    return Utilities.formatDate(v, ss_().getSpreadsheetTimeZone() || 'Asia/Jerusalem', 'yyyy-MM-dd HH:mm');    // תאריך+שעה (חלון נוכחות)
   }
   return v;
 }
@@ -419,7 +483,11 @@ function writeTable(sheetName, rows) {
   rows.forEach(function (r) {
     out.push(headers.map(function (h) { return r[h] !== undefined ? r[h] : ''; }));
   });
-  sheet.getRange(1, 1, out.length, headers.length).setValues(out);
+  var range = sheet.getRange(1, 1, out.length, headers.length);
+  // שעות/תאריכי-שיבוץ נשמרים כטקסט — אחרת Sheets ממיר אותם ל-Date ומקלקל את השעה (באג אזור-זמן 1899).
+  // גיליון soldiers נשאר רגיל כדי ש-start_date/end_date יהיו תאריכים אמיתיים (להשוואת חלון נוכחות).
+  if (sheetName !== SHEET_SOLDIERS) range.setNumberFormat('@');
+  range.setValues(out);
 }
 
 function clearTable_(sheetName) {
@@ -486,6 +554,18 @@ function hh_(hour) {
   var h = ((hour % 24) + 24) % 24;
   return (h < 10 ? '0' + h : h) + ':00';
 }
+
+/** שעות תחילת משמרות השמירה מהגיליון (config.shift_starts). נפילה חזרה: נגזר מ-anchor+shift_hours. */
+function shiftStarts_(cfg) {
+  var raw = String(cfg.shift_starts || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (raw.length) return raw;
+  var anchor = parseInt(cfg.anchor_hour, 10), sh = parseInt(cfg.shift_hours, 10), n = Math.round(24 / sh);
+  var out = [];
+  for (var i = 0; i < n; i++) out.push(hh_(anchor + i * sh));
+  return out;
+}
+
+function parseHourNum_(t) { var m = String(t).match(/^(\d{1,2})/); return m ? parseInt(m[1], 10) : 0; }
 
 /** תווית יום — האם המשמרת ביום הבלוק או למחרת */
 function dayLabel_(startHour) {
@@ -579,7 +659,9 @@ function seedSoldiers_() {
       active: 'TRUE',
       guard_eligible: s[3] ? 'TRUE' : 'FALSE',
       phone: s[5] || '',
-      internal_note: s[4]
+      internal_note: s[4],
+      start_date: '',
+      end_date: ''
     };
   });
   writeTable(SHEET_SOLDIERS, rows);
@@ -591,9 +673,9 @@ function seedFirstBlock_() {
 
   var cfg = getConfigAll();
   var anchorHour = parseInt(cfg.anchor_hour, 10);
-  var shiftHours = parseInt(cfg.shift_hours, 10);
   var guardCount = parseInt(cfg.guard_count, 10);
-  var shiftsPerDay = Math.round(24 / shiftHours);
+  var starts = shiftStarts_(cfg);
+  var shiftsPerDay = starts.length;
 
   var soldiers = readTable(SHEET_SOLDIERS).filter(function (s) { return truthy_(s.active); });
   var byName = {};
@@ -624,10 +706,11 @@ function seedFirstBlock_() {
 
   for (var slot = 0; slot < shiftsPerDay; slot++) {
     var guard = guards[slot % guardCount];
-    var startH = anchorHour + slot * shiftHours;
+    var start = starts[slot];
+    var end = starts[(slot + 1) % shiftsPerDay];
     rows.push({
       block_date: blockDate, position: 'guard', slot: String(slot),
-      start: hh_(startH), end: hh_(startH + shiftHours), day_label: dayLabel_(startH),
+      start: start, end: end, day_label: parseHourNum_(start) < anchorHour ? 'למחרת' : 'היום',
       soldier_id: guard.id, soldier_name: guard.name, standby: 'TRUE', note: ''
     });
   }
@@ -650,7 +733,17 @@ function seedFirstBlock_() {
 
 /** מוודא שהמערכת מותקנת לפני שהממשק עולה */
 function ensureReady_() {
-  if (!ss_().getSheetByName(SHEET_SOLDIERS)) setup();
+  if (!ss_().getSheetByName(SHEET_SOLDIERS)) { setup(); return; }
+  migrateColumns_(SHEET_SOLDIERS);  // מוסיף עמודות חדשות (phone/start_date/end_date) לגיליון קיים
+}
+
+/** מוודא שכותרות הגיליון כוללות את כל העמודות המוגדרות בקוד; אם לא — משכתב פעם אחת (ערכים חסרים = ריק). */
+function migrateColumns_(sheetName) {
+  var sheet = ss_().getSheetByName(sheetName);
+  if (!sheet) return;
+  var want = headersFor_(sheetName);
+  var have = sheet.getRange(1, 1, 1, want.length).getValues()[0];
+  if (have.join('') !== want.join('')) writeTable(sheetName, readTable(sheetName));
 }
 
 function flashMsg_(msg) {

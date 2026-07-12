@@ -46,6 +46,9 @@
   .chip { padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; }
   .chip.guard { background: var(--guard-soft); color: var(--guard); }
   .chip.patrol { background: var(--patrol-soft); color: var(--patrol); }
+  .datenav { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 14px; }
+  .datenav button { padding: 8px 14px; }
+  .datenav input[type=date] { width: auto; font-weight: 600; text-align: center; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 12px; }
@@ -107,7 +110,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-var STATE = { boot: null, adminPw: '', selectedId: '' };
+var STATE = { boot: null, adminPw: '',
+  selectedId: (function () { try { return localStorage.getItem('shavtzak_soldier') || ''; } catch (e) { return ''; } })() };
 var CURRENT_TAB = null;
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -167,7 +171,7 @@ function render() {
 
   var c = document.getElementById('content');
   if (CURRENT_TAB === 'personal') { c.innerHTML = viewPersonal(); wirePersonal(); }
-  else if (CURRENT_TAB === 'board') c.innerHTML = viewBoard();
+  else if (CURRENT_TAB === 'board') { c.innerHTML = viewBoard(); wireBoard(); }
   else if (CURRENT_TAB === 'draft') { c.innerHTML = viewDraft(); wireDraft(); }
   else if (CURRENT_TAB === 'soldiers') { c.innerHTML = viewSoldiers(); wireSoldiers(); }
   else if (CURRENT_TAB === 'fairness') c.innerHTML = viewFairness();
@@ -225,7 +229,8 @@ function viewPersonal() {
 
   var me = null;
   roster.forEach(function (s) { if (s.id === STATE.selectedId) me = s; });
-  var items = soldierGuardItems_(STATE.selectedId);
+  var allItems = soldierGuardItems_(STATE.selectedId);
+  var items = allItems.filter(function (x) { return x.b.block_date === STATE.boardDate; });
   var guards = items.filter(function (x) { return x.kind === 'guard'; });
 
   // "כרגע" — הערכה לפי שעון המכשיר מול משמרות השמירה
@@ -235,11 +240,16 @@ function viewPersonal() {
     var s = hhToMin(x.it.start), e = hhToMin(x.it.end);
     return s != null && e != null && nowMin >= s && nowMin < e;
   });
+  var onStandby = guards.some(function (x) { return truthy(x.it.standby); });
   var statusTxt = onGuardNow ? '🟠 בשמירה' : (guards.length ? '🟢 לא בשמירה כרגע' : '⚪ בפטרול / בבסיס');
+  var rightPill = onStandby
+    ? '<span class="pill standby">🔴 בכוננות 12:00–12:00</span>'
+    : '<span class="pill count">' + esc(me ? roleName(me.role) : '') + '</span>';
   var nowCard = '<div class="card now-card"><div><div class="muted">כרגע</div><div class="now-status">' + statusTxt + '</div></div>' +
-    '<div class="pill count">' + esc(me ? roleName(me.role) : '') + '</div></div>';
+    rightPill + '</div>';
 
-  var next = guards.length ? guards[0] : null;
+  var futureGuards = allItems.filter(function (x) { return x.kind === 'guard' && x.b.block_date >= todayStr(); });
+  var next = futureGuards.length ? futureGuards[0] : null;
   var nextCard = next
     ? '<div class="card"><div class="muted">המשמרת הבאה</div><div class="now-status">🕓 ' +
         esc(next.it.start) + '–' + esc(next.it.end) + '</div>' +
@@ -248,39 +258,90 @@ function viewPersonal() {
 
   var listRows = items.length ? items.map(function (x) {
     var kind = x.kind === 'guard'
-      ? '<span class="pill guard">שמירה</span>' + (truthy(x.it.standby) ? ' <span class="pill standby">כוננות 24ש\'</span>' : '')
+      ? '<span class="pill guard">שמירה</span>' + (truthy(x.it.standby) ? ' <span class="pill standby">כוננות 12:00–12:00</span>' : '')
       : '<span class="pill patrol">פטרול</span>';
     var time = x.kind === 'guard'
       ? esc(x.it.start) + '–' + esc(x.it.end) + ' (' + esc(x.it.day_label) + ')'
       : esc(x.it.day_label) + ' ' + esc(x.it.start);
     return '<div style="padding:7px 0;border-bottom:1px solid var(--border)">' + kind + ' <strong>' + time + '</strong> <span class="kv">· ' + esc(x.b.block_date) + '</span></div>';
-  }).join('') : '<p class="muted">אין שיבוצים בשיבוץ המפורסם.</p>';
+  }).join('') : '<p class="muted">אין שיבוץ לתאריך זה.</p>';
   var listCard = '<div class="card"><h2>השיבוצים של ' + esc(me ? me.name : '') + '</h2>' + listRows + '</div>';
 
   var contactCard = (me && normPhone(me.phone))
     ? '<div class="card"><h2>יצירת קשר</h2><div class="muted">' + esc(me.phone) + '</div>' + contactRow(me.phone) + '</div>'
     : '';
 
-  return picker + nowCard + nextCard + contactCard + listCard;
+  return picker + dateNavHtml() + nowCard + nextCard + contactCard + listCard;
 }
 
 function wirePersonal() {
   var sel = document.getElementById('soldier-pick');
-  if (sel) sel.onchange = function () { STATE.selectedId = sel.value; render(); };
+  if (sel) sel.onchange = function () {
+    STATE.selectedId = sel.value;
+    try { localStorage.setItem('shavtzak_soldier', sel.value); } catch (e) {}
+    render();
+  };
+  wireDateNav();
 }
 
 // ---- שבצק (לוח כללי) ----
 function viewBoard() {
-  var view = STATE.boot.published;
-  var effective = rosterActive().length;
-  var header = '<div class="card now-card"><div><div class="muted">כוח אפקטיבי</div><div class="now-status">' + effective + ' חיילים</div></div>' +
+  var view = STATE.boot.published || [];
+  if (!STATE.boardDate) STATE.boardDate = todayStr();
+
+  var nav = dateNavHtml();
+
+  if (!view.length) return nav + '<div class="card"><p class="muted">עדיין לא פורסם שיבוץ.</p></div>';
+
+  var block = null, idx = -1;
+  view.forEach(function (b, i) { if (b.block_date === STATE.boardDate) { block = b; idx = i; } });
+  if (!block) return nav + '<div class="card"><p class="muted">אין שיבוץ לתאריך זה. נווט לתאריך אחר או צור שיבוץ.</p></div>';
+
+  var effective = block.patrol.length ? (Object.keys(block.patrol.reduce(function (a, it) { a[it.soldier_id] = 1; return a; }, {})).length + standbySet_(block).length) : standbySet_(block).length;
+  var header = '<div class="card now-card"><div><div class="muted">כוח אפקטיבי · ' + esc(block.block_date) + '</div><div class="now-status">' + effective + ' חיילים</div></div>' +
     '<div class="pill count">רוטציה 12:00–12:00</div></div>';
-  if (!view || !view.length) return header + '<div class="card"><p class="muted">עדיין לא פורסם שיבוץ.</p></div>';
-  return header + view.map(function (block) { return renderBoardBlock(block); }).join('');
+  return nav + header + renderBoardBlock(block, view[idx - 1]);
+}
+
+// ניווט תאריך משותף (שבצק + לוז אישי)
+function dateNavHtml() {
+  if (!STATE.boardDate) STATE.boardDate = todayStr();
+  return '<div class="datenav">' +
+    '<button class="ghost" id="bd-prev" aria-label="יום קודם">‹</button>' +
+    '<input type="date" id="bd-date" value="' + esc(STATE.boardDate) + '">' +
+    '<button class="ghost" id="bd-next" aria-label="יום הבא">›</button>' +
+    '<button class="secondary" id="bd-today">היום</button></div>';
+}
+function wireDateNav() {
+  var d = document.getElementById('bd-date');
+  if (d) d.onchange = function () { STATE.boardDate = d.value; render(); };
+  var p = document.getElementById('bd-prev');
+  if (p) p.onclick = function () { STATE.boardDate = addDays(STATE.boardDate, -1); render(); };
+  var n = document.getElementById('bd-next');
+  if (n) n.onclick = function () { STATE.boardDate = addDays(STATE.boardDate, 1); render(); };
+  var t = document.getElementById('bd-today');
+  if (t) t.onclick = function () { STATE.boardDate = todayStr(); render(); };
+}
+function wireBoard() { wireDateNav(); }
+
+// רשימת השומרים בכוננות (standby) של בלוק — כל חייל פעם אחת
+function standbySet_(block) {
+  if (!block) return [];
+  var seen = {}, out = [];
+  block.guard.forEach(function (it) {
+    if (truthy(it.standby) && !seen[it.soldier_id]) { seen[it.soldier_id] = 1; out.push(it.soldier_name); }
+  });
+  return out;
+}
+
+function chipsHtml_(arr, cls) {
+  if (!arr.length) return '<p class="muted">—</p>';
+  return '<div class="chips">' + arr.map(function (n) {
+    return '<span class="chip ' + cls + '">' + esc(n) + '</span>'; }).join('') + '</div>';
 }
 
 // לוח שבצק: שלושה כרטיסים לכל בלוק — עמדה / כוננות / פטרול
-function renderBoardBlock(block) {
+function renderBoardBlock(block, prevBlock) {
   // עמדה — סבב משמרות השמירה
   var g = '<table><tr><th>משמרת</th><th>שעות</th><th>חייל</th></tr>';
   block.guard.forEach(function (it) {
@@ -289,11 +350,14 @@ function renderBoardBlock(block) {
   });
   g += '</table>';
 
-  // כוננות — השומרים (standby) פעם אחת כל אחד, לאורך כל ה-24 שעות
-  var seen = {}, standby = [];
-  block.guard.forEach(function (it) {
-    if (truthy(it.standby) && !seen[it.soldier_id]) { seen[it.soldier_id] = 1; standby.push(it.soldier_name); }
-  });
+  // כוננות — שני סטים ביום: "עד 12:00" (בלוק קודם) ו"מ-12:00" (הבלוק הזה)
+  var setBefore = standbySet_(prevBlock);
+  var setAfter = standbySet_(block);
+  var standbyHtml =
+    '<div class="muted" style="margin-bottom:6px">עד 12:00</div>' +
+    (setBefore.length ? chipsHtml_(setBefore, 'guard') : '<p class="muted">— (אין בלוק קודם)</p>') +
+    '<div class="muted" style="margin:14px 0 6px">מ-12:00</div>' +
+    chipsHtml_(setAfter, 'guard');
 
   // פטרול — רשימה מאוחדת (בלי הפרדת בוקר/ערב), כל חייל פעם אחת
   var pSeen = {}, patrol = [];
@@ -301,16 +365,10 @@ function renderBoardBlock(block) {
     if (!pSeen[it.soldier_id]) { pSeen[it.soldier_id] = 1; patrol.push(it.soldier_name); }
   });
 
-  function chips(arr, cls) {
-    if (!arr.length) return '<p class="muted">—</p>';
-    return '<div class="chips">' + arr.map(function (n) {
-      return '<span class="chip ' + cls + '">' + esc(n) + '</span>'; }).join('') + '</div>';
-  }
-
   return '<div class="block-title">' + esc(block.block_date) + '</div>' +
     '<div class="card"><h2>🎯 עמדה</h2>' + g + '</div>' +
-    '<div class="card"><h2>🔴 כוננות <span class="muted" style="font-weight:400">· 24 שעות</span></h2>' + chips(standby, 'guard') + '</div>' +
-    '<div class="card"><h2>🚶 פטרול</h2>' + chips(patrol, 'patrol') + '</div>';
+    '<div class="card"><h2>🔴 כוננות</h2>' + standbyHtml + '</div>' +
+    '<div class="card"><h2>🚶 פטרול</h2>' + chipsHtml_(patrol, 'patrol') + '</div>';
 }
 
 function renderBlock(block, myId, editable) {
@@ -368,6 +426,7 @@ function viewDraft() {
     forceBox +
     '<div class="btn-row">' +
     '<button id="btn-generate">ייצר שיבוץ הבא (24ש\')</button>' +
+    '<button id="btn-generate-week" class="secondary">ייצר שבוע (7 ימים)</button>' +
     (b.hasDraft ? '<button id="btn-publish">✓ אישור ופרסום</button>' +
                   '<button class="danger" id="btn-discard">בטל טיוטה</button>' : '') +
     '</div></div>';
@@ -387,6 +446,13 @@ function wireDraft() {
     g.disabled = true;
     callAdmin('generateNextRotation', [forced], function (res) {
       toast('נוצרה טיוטה לתאריך ' + res.blockDate); reload();
+    });
+  };
+  var gw = document.getElementById('btn-generate-week');
+  if (gw) gw.onclick = function () {
+    gw.disabled = true;
+    callAdmin('generateWeek', [7], function (res) {
+      toast('נוצרה טיוטה ל-' + res.days + ' ימים'); reload();
     });
   };
   var p = document.getElementById('btn-publish');
@@ -418,6 +484,7 @@ function viewSoldiers() {
       '<td class="kv">' + (esc(s.email) || '—') + '</td>' +
       '<td>' + roleName(s.role) + '</td>' +
       '<td>' + (s.guard_eligible + '' !== 'FALSE' && s.guard_eligible !== false ? 'כן' : 'לא') + '</td>' +
+      '<td class="kv">' + (s.start_date || s.end_date ? (esc(s.start_date || '…') + ' – ' + esc(s.end_date || '…')) : 'קבוע') + '</td>' +
       '<td>' + (inactive ? 'לא פעיל' :
         '<button class="danger secondary" data-remove="' + esc(s.id) + '" style="padding:4px 10px;font-size:12px">הורד</button>') +
       '</td></tr>';
@@ -433,8 +500,8 @@ function viewSoldiers() {
     '<button id="btn-add">הוסף</button>' +
     '</div></div>' +
     '<div class="card"><h2>רשימת חיילים</h2>' +
-    '<table><tr><th>שם</th><th>טלפון</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th></th></tr>' + rows + '</table>' +
-    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). טלפון מוצג לכולם לצורך יצירת קשר — השאר ריק אם אין לפרסם.</p></div>';
+    '<table><tr><th>שם</th><th>טלפון</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th>בבסיס (מ׳–עד)</th><th></th></tr>' + rows + '</table>' +
+    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). טלפון מוצג לכולם. <strong>בבסיס</strong>: ערוך <code>start_date</code>/<code>end_date</code> (תאריך+שעה) בגיליון <code>soldiers</code> — ריק = קבוע. משפיע על "ייצר שבוע".</p></div>';
 }
 
 function wireSoldiers() {
@@ -472,6 +539,14 @@ function viewFairness() {
 
 // ---- עזר ----
 function truthy(v) { return v === true || v + '' === 'TRUE' || v + '' === 'true'; }
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+function todayStr() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function addDays(s, n) {
+  var p = String(s).split('-');
+  var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
 function hhToMin(hh) {
   var m = String(hh || '').match(/^(\d{1,2}):(\d{2})/);
   if (!m) return null;
