@@ -1,69 +1,72 @@
-# CLAUDE.md — הקשר לפרויקט שבצ"ק מוצב
+# CLAUDE.md — project context for שבצ"ק מוצב (outpost duty roster)
 
-מסמך זה מסכם את ההקשר וההחלטות כדי שסשן חדש של Claude ייכנס לתמונה מיד. עבודה שוטפת מתועדת גם ב-`README.md` (מדריך הקמה והפעלה למשתמש).
+This doc gets a fresh Claude session up to speed immediately. Day-to-day setup/usage also lives in
+`README.md`. An implementation-agnostic product spec is in `SPEC.md`.
 
-## מה זה
-מערכת לניהול שבצ"ק (שמירות ופטרולים) למוצב קטן של ~12 חיילים. בנויה **כולה על Google Sheets + Google Apps Script** — חינמי, בלי שרת ובלי אירוח חיצוני. הגיליון עצמו הוא מסד הנתונים.
+## What it is
+A duty-roster system (guard shifts + patrols) for a small outpost of ~12 soldiers. Built **entirely
+on Google Sheets + Google Apps Script** — free, no server, no external hosting. The spreadsheet is
+the database. UI is Hebrew, RTL.
 
-## החלטות ארכיטקטורה
-- **בקאנד/DB:** Google Sheets (5 טאבים) + Apps Script. נבחר על פני Supabase לטובת פשטות ו"כלים קיימים חינמיים".
-- **הרשאות (עודכן):** **גישה ציבורית ללא התחברות גוגל** — `webapp.access: ANYONE_ANONYMOUS`, `executeAs: USER_DEPLOYING` (האפליקציה רצה כולה בשם המפרסם; זה גם עוקף את חסימת "האפליקציה חסומה" שקרתה עם `ANYONE`). בלי לוגין אין `getActiveUser` → זיהוי חייל ל"לוז אישי" נעשה ע"י **בורר חייל בצד לקוח**, ו**מצב מנהל לפי סיסמה** (`config.admin_password`, ברירת מחדל `admin1234`). כל פונקציית מנהל מקבלת `pw` כארגומנט אחרון ומאמתת ב-`requireAdmin_(pw)`; הלקוח מצרף `STATE.adminPw` דרך `callAdmin()`. *הערה: המפרסם עדיין חייב לאשר הרשאות פעם אחת דרך הרצת `setup` בעורך (Advanced→continue), אחרת ה-URL הציבורי שגיאה.*
-- **ממשק (עודכן):** מוגש מ-`HtmlService` (`Index.html`, Heebo, ערכת נושא בהירה, RTL). שתי לשוניות ציבוריות בהשראת `shavtzak-gaash.site`: **לוז אישי** (בורר חייל → "כרגע"/"המשמרת הבאה"/רשימת שיבוצים + כפתורי התקשר/וואטסאפ) ו**שבצק** (לוח כללי + "כוח אפקטיבי"). מנהל (אחרי סיסמה) מקבל בנוסף: טיוטה, חיילים, הוגנות. טור `phone` נוסף ל-`soldiers` (מוצג לכולם ליצירת קשר; ריק כברירת מחדל).
-- **מנגנון הליבה — טיוטה → אישור → פרסום:** המנהל עורך ב-`schedule_draft` (פרטי). החיילים קוראים **רק** מ-`schedule_published`. כפתור "אישור ופרסום" מעתיק draft→published ומעדכן סטטיסטיקה. שום שינוי לא דולף לחיילים לפני אישור.
+## Architecture decisions
+- **Backend/DB:** Google Sheets (5 tabs) + Apps Script. Chosen over Supabase for simplicity and "free existing tools".
+- **Access:** **Public, no Google login** — `webapp.access: ANYONE_ANONYMOUS`, `executeAs: USER_DEPLOYING` (the app runs entirely as the deployer; this also sidesteps the "app blocked" screen that `ANYONE` hit). With no login there is no `getActiveUser`, so: the personal view (**"לוז אישי"**) identifies a soldier via a **client-side name picker**, and **admin is gated by a password** (`config.admin_password`, default `admin1234`). Every admin function takes `pw` as its last argument and validates via `requireAdmin_(pw)`; the client appends `STATE.adminPw` through `callAdmin()`. *Note: the deployer must still authorize scopes once by running `setup`/`doGet` from the editor — otherwise the public URL errors.*
+- **UI:** Served from `HtmlService` (`Index.html`, Heebo font, light theme, RTL). Two public tabs inspired by `shavtzak-gaash.site`: **"לוז אישי"** (soldier picker → "כרגע"/"המשמרת הבאה"/shift list + call/WhatsApp buttons) and **"שבצק"** (board + "כוח אפקטיבי"). Admin (after password) also gets: **"טיוטה"** (draft), **"חיילים"** (soldiers), **"הוגנות"** (fairness).
+- **Core mechanism — draft → approve → publish:** admin edits `schedule_draft` (private). Soldiers read **only** `schedule_published`. The "אישור ופרסום" (Approve & Publish) button copies draft→published and recomputes stats. Nothing leaks to soldiers before approval.
 
-## מבנה הקבצים
-- `apps-script/Code.gs` — כל לוגיקת השרת: זיהוי משתמש, הרשאות, API ללקוח, אלגוריתם ההוגנות, מנגנון הפרסום, **ופונקציית `setup()`** (התקנה חד-פעמית שיוצרת טאבים ומזינה נתונים). *הערה: `Setup.gs` אוחד לתוך `Code.gs` כדי לצמצם להדבקה של 2 קבצים.*
-- `apps-script/Index.html` — הממשק (CSS+JS inline, קובץ אחד).
-- `apps-script/appsscript.json` — מניפסט (timezone Asia/Jerusalem, webapp: executeAs USER_DEPLOYING, access ANYONE).
-- `README.md` — מדריך הקמה (העתק-הדבק או clasp), שימוש יומיומי.
+## File structure
+- `apps-script/Code.gs` — all server logic: user/permission checks, client API, fairness algorithm, publish mechanism, **and `setup()`** (one-time install that creates tabs and seeds data). *`Setup.gs` was merged into `Code.gs` to keep it to 2 files to paste.*
+- `apps-script/Index.html` — the whole UI (inline CSS+JS, one file).
+- `apps-script/appsscript.json` — manifest (timezone Asia/Jerusalem; webapp: `executeAs USER_DEPLOYING`, `access ANYONE_ANONYMOUS`; non-sensitive `oauthScopes` only — `spreadsheets.currentonly` + `userinfo.email`; do NOT add `script.container.ui`, it's sensitive and triggers the "app blocked" hard block).
+- `README.md` — setup guide; `SPEC.md` — implementation-agnostic spec.
 
-## הטאבים בגיליון
-| טאב | תוכן |
-|-----|------|
-| `soldiers` | id, name, email, role, active, guard_eligible, phone, internal_note |
-| `schedule_draft` | השיבוץ בעריכה (פרטי למנהל) |
-| `schedule_published` | השיבוץ הגלוי לחיילים |
+## Spreadsheet tabs
+| Tab | Contents |
+|-----|----------|
+| `soldiers` | id, name, email, role, active, guard_eligible, phone, internal_note, start_date, end_date |
+| `schedule_draft` | schedule being edited (admin-private) |
+| `schedule_published` | schedule visible to soldiers |
 | `stats` | soldier_id, name, cumulative_guard_hours, guard_blocks, last_guard_block |
-| `config` | פרמטרים (anchor_hour, shift_hours, guard_count, patrol_morning/evening, admin_emails) |
+| `config` | anchor_hour, shift_hours, shift_starts, guard_count, patrol_morning/evening, admin_emails, admin_password |
 
-## לוגיקת השבצ"ק (ברירת מחדל — הכל בטאב config, לא בקוד)
-- רוטציה מעוגנת ל-**12:00 בצהריים** (`anchor_hour`), בלוק = 24 שעות.
-- **שעות המשמרות מגיעות מהגיליון:** `config.shift_starts` = רשימת שעות תחילה מופרדת בפסיקים (ברירת מחדל `12:00,15:00,18:00,21:00,00:00,03:00,06:00,09:00`). סוף משמרת = תחילת הבאה. עריכה בגיליון משנה את המשמרות בלי נגיעה בקוד. `guard_count` (4) קובע כמה שומרים; סדר `[g0,g1,g2,g3,...]` → כל שומר 2 משמרות (6ש') עם מנוחה ביניהן.
-- כל מי שבשמירה ב**כוננות** כל ה-24ש' (`standby=TRUE`). שאר הפעילים ב**פטרול**.
-- **נוכחות (in/out of base):** לכל חייל `start_date`/`end_date` בגיליון `soldiers` (**תאריך+שעה**, נשמר כ-Date אמיתי). ריק = תמיד בבסיס. הייצור (`buildBlockRows_`/`generateWeek`) משבץ רק חיילים שזמינים בזמן תחילת הבלוק (`soldierWindows_`+`availableAt_`, השוואת epoch — עמיד לאזורי-זמן).
-- **ייצור שבועי:** `generateWeek(days=7)` מייצר 7 בלוקים לטיוטה עם הוגנות מצטברת רצה (`advanceStats_`).
-- ⚠️ **אחסון כטקסט:** שעות/תאריכי-שיבוץ נשמרים כטקסט (`writeTable` מגדיר format `@` לכל גיליון פרט ל-`soldiers`). קריטי — אחרת Sheets ממיר "12:00" ל-Date ומקלקל את השעה בקיזוז LMT של 1899 (ראינו 12:00→09:39). גיליון `soldiers` נשאר רגיל כדי ש-start/end_date יהיו תאריכים אמיתיים.
+## Roster logic (defaults — all in the `config` tab, not in code)
+- Rotation anchored to **12:00 noon** (`anchor_hour`); a block = 24 hours.
+- **Shift hours come from the sheet:** `config.shift_starts` = comma-separated start times (default `12:00,15:00,18:00,21:00,00:00,03:00,06:00,09:00`). Shift end = next start. Editing the sheet changes the shifts with no code change. `guard_count` (4) sets how many guards; order `[g0,g1,g2,g3,...]` → each guard does 2 shifts (6h) with rest between.
+- Everyone on guard is on **standby** for the full 24h (`standby=TRUE`). Other active soldiers are on **patrol**.
+- **Presence (in/out of base):** each soldier has `start_date`/`end_date` in the `soldiers` tab (**date+time**, stored as a real Date). Empty = always in base. Generation (`buildBlockRows_`/`generateWeek`) only places soldiers available at the block's start time (`soldierWindows_` + `availableAt_`, epoch comparison — timezone-safe).
+- **Weekly generation:** `generateWeek(days=7)` produces 7 draft blocks with running cumulative fairness (`advanceStats_`).
+- ⚠️ **Text storage:** schedule/config times & dates are stored as text (`writeTable` sets number format `@` for every tab except `soldiers`). Critical — otherwise Sheets converts "12:00" to a Date and corrupts it via the 1899 LMT offset (observed 12:00→09:39). The `soldiers` tab stays normal so start/end_date remain real dates.
 
-## אלגוריתם ההוגנות + כללי שיבוץ (השיבוץ בפועל נעשה ע"י Claude — שמור כאן הכל)
-המשתמש רוצה שהשיבוצים ייעשו דרך Claude. בכל ייצור שבצ"ק, Claude חייב לקיים את הכללים הבאים:
-1. **צבירת שעות:** בחר את `guard_count` הכשירים עם `cumulative_guard_hours` הנמוך ביותר. שובר שוויון: מי ששמר הכי מזמן (`last_guard_block`), ואז אלפביתי.
-2. **הוגנות משמרות לילה:** מי שעשה משמרות לילה (**00:00–03:00 / 03:00–06:00**) בבלוק — בפעם הבאה שהוא שומר יש לתת לו משמרות **לא-ליליות**. לא לתת לאותו אדם לילה פעמיים ברצף. פזר את הלילות בין החיילים לאורך השבוע.
-3. **נוכחות:** רק חיילים שזמינים (חלון `start_date`/`end_date` מכסה את זמן הבלוק) נכנסים לשיבוץ.
-4. **החרגות קבועות:** `guard_eligible=FALSE` → לעולם לא בעמדות (אסי פרץ). `active=FALSE` → לא משובץ כלל.
-5. **חייבים בפטרול:** `forcePatrolIds` — מסומנים לא נכנסים לעמדות באותו בלוק (לא צוברים שעות → יעלו מוקדם יותר בהמשך לפיצוי).
-- הסטטיסטיקה נבנית מחדש (`recomputeStats_`) מכל ההיסטוריה המפורסמת בכל פרסום — אידמפוטנטי, כך שעריכות ידניות משתקפות נכון.
-- *הערה: כלל משמרות-הלילה (2) עדיין לא ממומש בקוד `buildBlockRows_` — כרגע הוא כלל מנחה ל-Claude. אם להפוך אותו לקוד, יש לעקוב אחרי סוג המשמרת האחרונה לכל חייל.*
+## Fairness algorithm + placement rules (placement is done by Claude — keep everything here)
+The user wants placements done through Claude. On every roster generation, Claude must honor:
+1. **Cumulative hours:** pick the `guard_count` eligible soldiers with the lowest `cumulative_guard_hours`. Tie-breakers: earliest `last_guard_block`, then alphabetical.
+2. **Night-shift fairness:** whoever did night shifts (**00:00–03:00 / 03:00–06:00**) in a block should get **non-night** shifts next time they guard. Never assign the same person night shifts twice in a row; spread nights across soldiers over the week.
+3. **Presence:** only soldiers available (their `start_date`/`end_date` window covers the block time) enter placement.
+4. **Hard exclusions:** `guard_eligible=FALSE` → never on positions (אסי פרץ). `active=FALSE` → never scheduled.
+5. **Forced patrol:** `forcePatrolIds` — marked soldiers don't go on positions this block (they don't accrue hours → fairness raises them sooner as compensation).
+- Stats are rebuilt (`recomputeStats_`) from all published history on every publish — idempotent, so manual edits are reflected correctly.
+- *Note: the night-shift rule (2) is NOT yet in `buildBlockRows_` code — it's currently a guideline for Claude. To codify it, track each soldier's last shift type.*
 
-## כללים ספציפיים לחיילים (חשוב לשמר)
-- **אלישיב לביא** (elyashivlavi@gmail.com) = **מנהל** (role=admin).
-- **שמואל אטלי** = **קצין מוצב** (role=officer). כרגע כשיר לשמירה; אם צריך להחריג — לכבות `guard_eligible`.
-- **אסי פרץ** = **סמל**, `guard_eligible=FALSE` → **תמיד בפטרול, אף פעם לא בעמדות**. הסיבה נשמרת ב-`internal_note` בלבד ו**לא מוצגת בממשק הציבורי** (בקשת המשתמש: לשמור בצד, בלי להציג בגלוי).
-- **גלעד דביר** ו**אביאל גיאת** — חייבים בפטרול **בבלוק ההתחלתי (היום)**. ממומש דרך `SEED_FORCE_PATROL` ב-`Code.gs`. זו הוראה חד-פעמית לבלוק הנוכחי (לא כלל קבוע — עדיין ממתין לאישור המשתמש אם להפוך לקבוע).
-- **עופר קאסה** שומר מ-12:00 בבלוק הראשון (מצב התחלתי).
-- רשימת 12 החיילים המלאה נמצאת ב-`SEED_SOLDIERS` בתוך `Code.gs`.
+## Soldier-specific rules (important to preserve)
+- **אלישיב לביא** (elyashivlavi@gmail.com) = **admin** (role=admin).
+- **שמואל אטלי** = **outpost officer** (role=officer). Currently guard-eligible; to exclude — turn off `guard_eligible`.
+- **אסי פרץ** = **sergeant**, `guard_eligible=FALSE` → **always patrol, never on positions**. The reason is kept in `internal_note` only and **not shown in the public UI** (user request: keep it aside, not visible).
+- **גלעד דביר** and **אביאל גיאת** — must be on patrol **in the initial block (today)**. Implemented via `SEED_FORCE_PATROL` in `Code.gs`. One-time for the current block (not a permanent rule — pending user decision whether to make it permanent).
+- Initial block guard order (from 12:00): **עופר קאסה, יהודה ונדרמן, בנג׳י פירר, אלישיב לביא** — via `SEED_FIRST_GUARDS`.
+- Full 12-soldier list is in `SEED_SOLDIERS` in `Code.gs`.
 
-## יכולת "חייבים בפטרול"
-בלשונית "טיוטה" יש תיבות סימון "חייבים בפטרול בבלוק הבא" → מעבירות `forcePatrolIds` ל-`generateNextRotation`, והחיילים המסומנים לא ייכנסו לעמדות באותו בלוק.
+## "Must-patrol" capability
+The "טיוטה" (draft) tab has "חייבים בפטרול בבלוק הבא" (must patrol next block) checkboxes → they pass `forcePatrolIds` to `generateNextRotation`, and the marked soldiers won't go on positions that block.
 
-## איך לפרוס / להריץ (מצב נוכחי — פרוס וחי)
-הפרויקט **כבר פרוס** דרך `clasp` (מחובר ומחובר-חשבון). המדריך המלא לפריסה: הסקיל `deploy-shavtzak`.
-- **מזהה הפריסה הקבוע (web app):** `AKfycbxRABLTIGwN6LIJwVmFT9NHg2hXtEJpEx3xeAbZKjUrpcT9TDBefBW7Kep_PX2AXhTzhg`
-- **URL קצר קבוע:** https://tinyurl.com/shavtzak-motzav → מצביע ל-`…/exec` של מזהה הפריסה הזה.
-- **כלל זהב לשמירת ה-URL:** לשינויי **קוד** תמיד `clasp redeploy <אותו מזהה>` — ה-URL לא משתנה, וה-tinyurl נשאר תקף אוטומטית. **לעולם לא `create-deployment`** (מייצר URL חדש ושובר את ה-tinyurl; alias חינמי בטיניורל לא ניתן לכיוון-מחדש). `create-deployment` נדרש רק לשינוי `webapp.access` — וזה כבר בוצע (ANONYMOUS), לא יחזור.
-- **הרשאת המפרסם (חד-פעמי):** בוצעה. אפליקציה אנונימית רצה בשם המפרסם, אז המפרסם חייב לאשר סקופים פעם אחת מהעורך (הרצת `setup`/`doGet`). עם סקופים לא-רגישים בלבד — האישור שקט (בלי מסך "אפליקציה לא מאומתת").
-- הערה: העורך הפתוח מציג לפעמים גרסה מקומית ישנה; אחרי `clasp push` צריך רענון. בדפדפן — רענון קשיח (Cmd+Shift+R) כדי לעקוף cache.
+## Deploy / run (current state — deployed and live)
+The project is **already deployed** via `clasp` (installed and logged in). Full deploy guide: the `deploy-shavtzak` skill.
+- **Permanent deployment id (web app):** `AKfycbxRABLTIGwN6LIJwVmFT9NHg2hXtEJpEx3xeAbZKjUrpcT9TDBefBW7Kep_PX2AXhTzhg`
+- **Permanent short URL:** https://tinyurl.com/shavtzak-motzav → points to that deployment's `…/exec`.
+- **Golden rule for keeping the URL:** for **code** changes always `clasp redeploy <same id>` — the URL doesn't change and the tinyurl stays valid automatically. **Never `create-deployment`** (mints a new URL and breaks the tinyurl; free TinyURL aliases can't be repointed). `create-deployment` is only needed for a `webapp.access` change — already done (ANONYMOUS), won't recur.
+- **Deployer authorization (one-time):** done. An anonymous app runs as the deployer, so the deployer must authorize scopes once from the editor (running `setup`/`doGet`). With non-sensitive scopes only, authorization is silent (no "unverified app" screen).
+- Note: the open editor sometimes shows an old local version; after `clasp push`, refresh. In the browser, hard-refresh (Cmd+Shift+R) to bypass cache.
 
-## מוסכמות פיתוח
-- **כל `clasp redeploy` מלווה מיד ב-`git commit` + `git push origin main`** (הוראת המשתמש). לא להשאיר פריסה בלי דחיפה ל-GitHub. הענף הפעיל הוא `main` (עוקב `origin/main`).
-- זהות המפתח לא מוזכרת בקומיטים/קוד.
-- תחביר `.gs` נבדק מקומית ע"י העתקה ל-`.js` והרצת `node -c`; ה-JS ב-`Index.html` נבדק ע"י `vm.createScript` (Apps Script רץ V8).
+## Dev conventions
+- **Every `clasp redeploy` is immediately followed by `git commit` + `git push origin main`** (user instruction). Never leave a deploy unpushed. The active branch is `main` (tracks `origin/main`).
+- The developer's identity is not mentioned in commits/code.
+- `.gs` syntax is checked locally by copying to `.js` and running `node -c`; the JS in `Index.html` is checked via `vm.createScript` (Apps Script runs V8).

@@ -168,19 +168,93 @@ function generateNextRotation(forcePatrolIds, pw) {
   return { ok: true, blockDate: blockDate, guards: block.guards.map(function (g) { return g.name; }) };
 }
 
-/** מייצר שבצ"ק לשבוע שלם (ברירת מחדל 7 בלוקים של 24ש') לטיוטה, לפי הוגנות מצטברת וחלונות נוכחות. */
+/**
+ * מייצר שבצ"ק לשבוע שלם (ברירת מחדל 7 בלוקים) לטיוטה. מיישם את כללי ההוגנות:
+ * (1) איזון עמדה/פטרול לאורך השבוע — מי שעשה הכי מעט ימי-עמדה השבוע קודם;
+ * (2) הוגנות היסטורית — cumulative_guard_hours ואז last_guard_block;
+ * (3) סבב לילות — מי שעשה הכי מעט לילות השבוע מקבל את עמדות-הלילה (00:00–06:00);
+ * (4) נוכחות (חלונות start/end_date) והחרגות (guard_eligible/active).
+ */
 function generateWeek(days, pw) {
   requireAdmin_(pw);
   var cfg = getConfigAll();
   var n = parseInt(days, 10) || 7;
-  var stats = statsMap_();          // מפת הוגנות רצה — מתעדכנת בין הבלוקים
-  var windows = soldierWindows_();
+  var guardCount = parseInt(cfg.guard_count, 10);
+  var anchorHour = parseInt(cfg.anchor_hour, 10);
+  var starts = shiftStarts_(cfg);
+
+  // אילו עמדות (positions) נושאות משמרת לילה (שעת תחילה 00:00–06:00)
+  var nightPos = {};
+  for (var p = 0; p < guardCount; p++) {
+    for (var s = p; s < starts.length; s += guardCount) {
+      var hnum = parseHourNum_(starts[s]);
+      if (hnum >= 0 && hnum < 6) { nightPos[p] = true; break; }
+    }
+  }
+
+  var stats = statsMap_(), windows = soldierWindows_();
+  var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך השבוע (איזון + סבב לילות)
   var rows = [], summary = [], bd = nextBlockDate_();
+
   for (var i = 0; i < n; i++) {
-    var block = buildBlockRows_(bd, stats, {}, windows, cfg);
-    rows = rows.concat(block.rows);
-    advanceStats_(stats, block.guards, bd, block.hoursPerGuard);
-    summary.push({ date: bd, guards: block.guards.map(function (g) { return g.name; }) });
+    var instant = blockStartInstant_(bd, anchorHour);
+    var present = readTable(SHEET_SOLDIERS).filter(function (s) {
+      return truthy_(s.active) && availableAt_(windows[s.id], instant);
+    });
+    var pool = present.filter(function (s) { return truthy_(s.guard_eligible); });
+    // איזון קודם (הכי מעט ימי-עמדה השבוע), ואז הוגנות היסטורית
+    pool.sort(function (a, b) {
+      var ga = weekGuardDays[a.id] || 0, gb = weekGuardDays[b.id] || 0;
+      if (ga !== gb) return ga - gb;
+      var ha = stats[a.id] ? Number(stats[a.id].cumulative_guard_hours) : 0;
+      var hb = stats[b.id] ? Number(stats[b.id].cumulative_guard_hours) : 0;
+      if (ha !== hb) return ha - hb;
+      var la = stats[a.id] ? String(stats[a.id].last_guard_block) : '';
+      var lb = stats[b.id] ? String(stats[b.id].last_guard_block) : '';
+      if (la !== lb) return la < lb ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+    if (pool.length < guardCount) {
+      throw new Error('אין מספיק חיילים כשירים בתאריך ' + bd + ' (' + pool.length + '/' + guardCount + ').');
+    }
+    var chosen = pool.slice(0, guardCount);
+
+    // סבב לילות: מי שעשה הכי מעט לילות השבוע מקבל את עמדות-הלילה
+    var byNight = chosen.slice().sort(function (a, b) {
+      return (weekNight[a.id] || 0) - (weekNight[b.id] || 0) || String(a.name).localeCompare(String(b.name));
+    });
+    var ordered = new Array(guardCount), nightList = [], dayList = [], idx = 0;
+    for (var pp = 0; pp < guardCount; pp++) (nightPos[pp] ? nightList : dayList).push(pp);
+    nightList.forEach(function (p) { ordered[p] = byNight[idx++]; });
+    dayList.forEach(function (p) { ordered[p] = byNight[idx++]; });
+
+    var guardIds = {};
+    ordered.forEach(function (g) { guardIds[g.id] = true; });
+    for (var slot = 0; slot < starts.length; slot++) {
+      var g = ordered[slot % guardCount];
+      var start = starts[slot], end = starts[(slot + 1) % starts.length];
+      rows.push({
+        block_date: bd, position: 'guard', slot: String(slot),
+        start: start, end: end, day_label: parseHourNum_(start) < anchorHour ? 'למחרת' : 'היום',
+        soldier_id: g.id, soldier_name: g.name, standby: 'TRUE', note: ''
+      });
+    }
+    var patrol = present.filter(function (s) { return !guardIds[s.id]; });
+    ['morning', 'evening'].forEach(function (part) {
+      var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
+      patrol.forEach(function (s) {
+        rows.push({
+          block_date: bd, position: 'patrol', slot: part, start: time, end: '',
+          day_label: part === 'morning' ? 'בוקר' : 'ערב',
+          soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
+        });
+      });
+    });
+
+    ordered.forEach(function (g) { weekGuardDays[g.id] = (weekGuardDays[g.id] || 0) + 1; });
+    nightList.forEach(function (p) { var g = ordered[p]; weekNight[g.id] = (weekNight[g.id] || 0) + 1; });
+    advanceStats_(stats, ordered, bd, 24 / guardCount);
+    summary.push({ date: bd, guards: ordered.map(function (g) { return g.name; }) });
     bd = advanceDate_(bd, 1);
   }
   writeTable(SHEET_DRAFT, rows);
