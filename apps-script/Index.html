@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --card2: #334155; --text: #e2e8f0;
+    --muted: #94a3b8; --accent: #38bdf8; --guard: #f59e0b; --patrol: #34d399;
+    --danger: #f87171; --ok: #4ade80; --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Rubik, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5;
+  }
+  header {
+    background: var(--card); padding: 14px 18px; display: flex; align-items: center;
+    justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  .who { font-size: 13px; color: var(--muted); }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--card2); }
+  .badge.admin { background: var(--accent); color: #06263a; font-weight: 700; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab {
+    padding: 8px 14px; border-radius: 8px; background: var(--card); cursor: pointer;
+    font-size: 14px; border: 1px solid var(--border); user-select: none;
+  }
+  .tab.active { background: var(--accent); color: #06263a; font-weight: 700; border-color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; }
+  .block-title { font-size: 15px; font-weight: 700; margin: 4px 0 10px; color: var(--accent); }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-inline-start: 6px; }
+  .pill.guard { background: rgba(245,158,11,.18); color: var(--guard); }
+  .pill.patrol { background: rgba(52,211,153,.18); color: var(--patrol); }
+  .pill.standby { background: rgba(248,113,113,.18); color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  .row-guard td:first-child { border-inline-start: 3px solid var(--guard); }
+  .mine { background: rgba(56,189,248,.12); border-radius: 6px; }
+  button {
+    background: var(--accent); color: #06263a; border: none; padding: 9px 16px;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: var(--card2); color: var(--text); }
+  button.danger { background: var(--danger); color: #3a0d0d; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  input, select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit;
+  }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; align-items: end; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .hidden { display: none; }
+  .banner {
+    padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 14px;
+    background: rgba(245,158,11,.15); color: var(--guard); border: 1px solid rgba(245,158,11,.35);
+  }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--card2); padding: 12px 20px; border-radius: 10px; font-size: 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.4); opacity: 0; transition: opacity .25s; z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { background: var(--danger); color: #3a0d0d; }
+  .spinner { text-align: center; padding: 40px; color: var(--muted); }
+  .kv { font-size: 13px; color: var(--muted); }
+  .inactive { opacity: .45; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪖 שבצ"ק מוצב</h1>
+  <div class="who" id="who">טוען…</div>
+</header>
+
+<main>
+  <div id="loading" class="spinner">טוען את השיבוץ…</div>
+  <div id="app" class="hidden">
+    <div class="tabs" id="tabs"></div>
+    <div id="content"></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var STATE = { boot: null };
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+  return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+function toast(msg, isErr) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (isErr ? ' err' : '');
+  setTimeout(function () { t.className = 'toast'; }, 3200);
+}
+
+function call(fn, args, cb) {
+  google.script.run
+    .withSuccessHandler(function (res) { if (cb) cb(res); })
+    .withFailureHandler(function (err) { toast(err.message || 'שגיאה', true); })
+    [fn].apply(null, args || []);
+}
+
+// ---- טעינה ראשונית ----
+window.onload = function () {
+  google.script.run
+    .withSuccessHandler(function (boot) { STATE.boot = boot; render(); })
+    .withFailureHandler(function (err) {
+      document.getElementById('loading').textContent = 'שגיאה בטעינה: ' + (err.message || err);
+    })
+    .getBootstrap();
+};
+
+var CURRENT_TAB = null;
+
+function render() {
+  var b = STATE.boot;
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+
+  var u = b.user;
+  var whoTxt = u.isKnown ? esc(u.name) : (u.email ? esc(u.email) : 'אורח');
+  var badge = u.isAdmin ? '<span class="badge admin">מנהל</span>'
+            : u.isKnown ? '<span class="badge">' + roleName(u.role) + '</span>' : '';
+  document.getElementById('who').innerHTML = whoTxt + ' ' + badge;
+
+  var tabs = [];
+  if (u.isKnown && !u.isAdmin) tabs.push(['mine', 'מתי אני עולה']);
+  tabs.push(['published', 'לוח שיבוצים']);
+  if (u.isAdmin) {
+    tabs.push(['draft', 'טיוטה' + (b.hasDraft ? ' •' : '')]);
+    tabs.push(['soldiers', 'חיילים']);
+    tabs.push(['fairness', 'הוגנות']);
+  }
+
+  if (!CURRENT_TAB || !tabs.some(function (t) { return t[0] === CURRENT_TAB; })) CURRENT_TAB = tabs[0][0];
+
+  var tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = tabs.map(function (t) {
+    return '<div class="tab ' + (t[0] === CURRENT_TAB ? 'active' : '') + '" data-tab="' + t[0] + '">' + esc(t[1]) + '</div>';
+  }).join('');
+  Array.prototype.forEach.call(tabsEl.children, function (el) {
+    el.onclick = function () { CURRENT_TAB = el.getAttribute('data-tab'); render(); };
+  });
+
+  var c = document.getElementById('content');
+  if (CURRENT_TAB === 'mine') c.innerHTML = viewMine();
+  else if (CURRENT_TAB === 'published') c.innerHTML = viewSchedule(b.published, u.soldierId, 'עדיין לא פורסם שיבוץ.');
+  else if (CURRENT_TAB === 'draft') { c.innerHTML = viewDraft(); wireDraft(); }
+  else if (CURRENT_TAB === 'soldiers') { c.innerHTML = viewSoldiers(); wireSoldiers(); }
+  else if (CURRENT_TAB === 'fairness') c.innerHTML = viewFairness();
+}
+
+function roleName(r) {
+  return { admin: 'מנהל', officer: 'קצין מוצב', sergeant: 'סמל', soldier: 'חייל', guest: 'אורח' }[r] || 'חייל';
+}
+
+// ---- תצוגת "מתי אני עולה" ----
+function viewMine() {
+  var my = STATE.boot.mySchedule || [];
+  if (!my.length) return '<div class="card"><p class="muted">לא נמצאו שיבוצים אישיים בשיבוץ המפורסם.</p></div>';
+  var html = '';
+  my.forEach(function (block) {
+    html += '<div class="card"><div class="block-title">' + esc(block.block_date) + '</div>';
+    block.items.forEach(function (it) {
+      var kind = it.position === 'guard'
+        ? '<span class="pill guard">שמירה</span>' + (it.standby ? '<span class="pill standby">כוננות 24ש\'</span>' : '')
+        : '<span class="pill patrol">פטרול</span>';
+      var time = it.position === 'guard'
+        ? (esc(it.start) + '–' + esc(it.end) + ' (' + esc(it.day_label) + ')')
+        : (esc(it.day_label) + ' ' + esc(it.start));
+      html += '<div style="padding:6px 0">' + kind + ' <strong>' + time + '</strong></div>';
+    });
+    html += '</div>';
+  });
+  return html;
+}
+
+// ---- תצוגת לוח שיבוצים (מפורסם או טיוטה) ----
+function viewSchedule(view, myId, emptyMsg) {
+  if (!view || !view.length) return '<div class="card"><p class="muted">' + esc(emptyMsg) + '</p></div>';
+  return view.map(function (block) { return renderBlock(block, myId, false); }).join('');
+}
+
+function renderBlock(block, myId, editable) {
+  var g = '<table><tr><th>משמרת</th><th>שעות</th><th>חייל</th>' + (editable ? '<th></th>' : '') + '</tr>';
+  block.guard.forEach(function (it) {
+    g += '<tr class="row-guard ' + (it.soldier_id === myId ? 'mine' : '') + '">' +
+         '<td>' + esc(it.day_label) + '</td>' +
+         '<td>' + esc(it.start) + '–' + esc(it.end) + '</td>' +
+         '<td>' + esc(it.soldier_name) + '</td>' +
+         (editable ? '<td>' + editSelect(block.block_date, 'guard', it.slot, it.soldier_id) + '</td>' : '') +
+         '</tr>';
+  });
+  g += '</table>';
+
+  var patrolNames = block.patrol.reduce(function (acc, it) {
+    (acc[it.slot] = acc[it.slot] || []).push({ name: it.soldier_name, mine: it.soldier_id === myId, label: it.day_label });
+    return acc;
+  }, {});
+  var p = '';
+  Object.keys(patrolNames).forEach(function (slot) {
+    var arr = patrolNames[slot];
+    p += '<div style="margin-top:8px"><span class="pill patrol">פטרול · ' + esc(arr[0].label) + '</span> ' +
+      arr.map(function (x) { return '<span class="' + (x.mine ? 'mine' : '') + '" style="padding:2px 4px">' + esc(x.name) + '</span>'; }).join('، ') +
+      '</div>';
+  });
+
+  return '<div class="card"><div class="block-title">' + esc(block.block_date) +
+    ' <span class="pill guard">כוננות: השומרים 12:00–12:00</span></div>' + g + p + '</div>';
+}
+
+function editSelect(blockDate, position, slot, currentId) {
+  var opts = (STATE.boot.soldiers || []).filter(function (s) { return s.active + '' !== 'FALSE' && s.active !== false; })
+    .map(function (s) {
+      return '<option value="' + esc(s.id) + '"' + (s.id === currentId ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }).join('');
+  return '<select class="edit-cell" data-date="' + esc(blockDate) + '" data-pos="' + esc(position) +
+    '" data-slot="' + esc(slot) + '">' + opts + '</select>';
+}
+
+// ---- תצוגת טיוטה (מנהל) ----
+function viewDraft() {
+  var b = STATE.boot;
+  var head = '<div class="card"><h2>ניהול טיוטה</h2>' +
+    '<p class="muted">הטיוטה נראית רק לך. החיילים ימשיכו לראות את השיבוץ הקודם עד שתלחץ "אישור ופרסום".</p>' +
+    '<div class="btn-row">' +
+    '<button id="btn-generate">ייצר שיבוץ הבא (24ש\')</button>' +
+    (b.hasDraft ? '<button id="btn-publish">✓ אישור ופרסום</button>' +
+                  '<button class="danger" id="btn-discard">בטל טיוטה</button>' : '') +
+    '</div></div>';
+
+  if (!b.hasDraft) return head + '<div class="card"><p class="muted">אין טיוטה פעילה. לחץ "ייצר שיבוץ הבא" כדי ליצור את הבלוק הבא לפי הוגנות, או ערוך ופרסם.</p></div>';
+
+  var banner = '<div class="banner">⚠️ טיוטה לא מפורסמת — שינויים כאן אינם גלויים לחיילים. ניתן לערוך כל משמרת שמירה ואז לאשר.</div>';
+  var blocks = b.draft.map(function (block) { return renderBlock(block, '', true); }).join('');
+  return head + banner + blocks;
+}
+
+function wireDraft() {
+  var g = document.getElementById('btn-generate');
+  if (g) g.onclick = function () {
+    g.disabled = true;
+    call('generateNextRotation', [], function (res) {
+      toast('נוצרה טיוטה לתאריך ' + res.blockDate); reload();
+    });
+  };
+  var p = document.getElementById('btn-publish');
+  if (p) p.onclick = function () {
+    if (!confirm('לפרסם את הטיוטה לכל החיילים?')) return;
+    call('publishDraft', [], function () { toast('פורסם בהצלחה ✓'); reload(); });
+  };
+  var d = document.getElementById('btn-discard');
+  if (d) d.onclick = function () {
+    if (!confirm('לבטל את הטיוטה?')) return;
+    call('discardDraft', [], function () { toast('הטיוטה בוטלה'); reload(); });
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('.edit-cell'), function (sel) {
+    sel.onchange = function () {
+      call('editAssignment', [sel.getAttribute('data-date'), sel.getAttribute('data-pos'),
+        sel.getAttribute('data-slot'), sel.value], function () { toast('עודכן'); reload(); });
+    };
+  });
+}
+
+// ---- תצוגת חיילים (מנהל) ----
+function viewSoldiers() {
+  var soldiers = STATE.boot.soldiers || [];
+  var rows = soldiers.map(function (s) {
+    var inactive = (s.active + '' === 'FALSE' || s.active === false);
+    return '<tr class="' + (inactive ? 'inactive' : '') + '">' +
+      '<td>' + esc(s.name) + (s.internal_note ? ' <span class="muted" title="' + esc(s.internal_note) + '">🔒</span>' : '') + '</td>' +
+      '<td class="kv">' + (esc(s.email) || '—') + '</td>' +
+      '<td>' + roleName(s.role) + '</td>' +
+      '<td>' + (s.guard_eligible + '' !== 'FALSE' && s.guard_eligible !== false ? 'כן' : 'לא') + '</td>' +
+      '<td>' + (inactive ? 'לא פעיל' :
+        '<button class="danger secondary" data-remove="' + esc(s.id) + '" style="padding:4px 10px;font-size:12px">הורד</button>') +
+      '</td></tr>';
+  }).join('');
+
+  return '<div class="card"><h2>הוספת חייל</h2>' +
+    '<div class="form-grid">' +
+    '<input id="ns-name" placeholder="שם מלא">' +
+    '<input id="ns-email" placeholder="מייל גוגל (לצפייה אישית)">' +
+    '<select id="ns-role"><option value="soldier">חייל</option><option value="officer">קצין מוצב</option><option value="sergeant">סמל</option></select>' +
+    '<label class="muted"><input type="checkbox" id="ns-guard" checked> כשיר לעמדות</label>' +
+    '<button id="btn-add">הוסף</button>' +
+    '</div></div>' +
+    '<div class="card"><h2>רשימת חיילים</h2>' +
+    '<table><tr><th>שם</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th></th></tr>' + rows + '</table>' +
+    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). חייל בלי מייל יוכל לראות את הלוח הכללי אך לא צפייה אישית.</p></div>';
+}
+
+function wireSoldiers() {
+  var add = document.getElementById('btn-add');
+  if (add) add.onclick = function () {
+    var name = document.getElementById('ns-name').value.trim();
+    if (!name) { toast('חסר שם', true); return; }
+    call('addSoldier', [name, document.getElementById('ns-email').value.trim(),
+      document.getElementById('ns-role').value, document.getElementById('ns-guard').checked],
+      function () { toast('נוסף'); reload(); });
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-remove]'), function (btn) {
+    btn.onclick = function () {
+      if (!confirm('להוריד את החייל? (יסומן כלא פעיל, ההיסטוריה נשמרת)')) return;
+      call('removeSoldier', [btn.getAttribute('data-remove')], function () { toast('הורד'); reload(); });
+    };
+  });
+}
+
+// ---- תצוגת הוגנות (מנהל) ----
+function viewFairness() {
+  var stats = (STATE.boot.stats || []).slice().sort(function (a, b) {
+    return Number(a.cumulative_guard_hours) - Number(b.cumulative_guard_hours);
+  });
+  if (!stats.length) return '<div class="card"><p class="muted">אין עדיין נתונים.</p></div>';
+  var rows = stats.map(function (s) {
+    return '<tr><td>' + esc(s.name) + '</td><td>' + esc(s.cumulative_guard_hours) +
+      '</td><td>' + esc(s.guard_blocks) + '</td><td class="kv">' + (esc(s.last_guard_block) || '—') + '</td></tr>';
+  }).join('');
+  return '<div class="card"><h2>צבירת שעות שמירה</h2>' +
+    '<p class="muted">האלגוריתם מעלה לשמירה את מי שצבר הכי מעט שעות. מיון מהנמוך לגבוה.</p>' +
+    '<table><tr><th>חייל</th><th>שעות מצטברות</th><th>מס\' בלוקים</th><th>שמירה אחרונה</th></tr>' + rows + '</table></div>';
+}
+
+function reload() {
+  google.script.run.withSuccessHandler(function (boot) { STATE.boot = boot; render(); }).getBootstrap();
+}
+</script>
+</body>
+</html>
