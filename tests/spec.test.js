@@ -91,7 +91,7 @@ const Utilities = {
 };
 
 // ---------- load Code.gs ----------
-const code = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
+const code = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
 const G = { SpreadsheetApp, Session, ContentService, HtmlService, Utilities, console };
 vm.createContext(G);
 vm.runInContext(code, G);
