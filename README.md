@@ -23,9 +23,8 @@
 
 1. היכנס ל־[sheets.new](https://sheets.new) וצור גיליון חדש. תן לו שם, למשל "שבצ״ק מוצב".
 2. בתפריט: **Extensions → Apps Script** (תוספות → Apps Script).
-3. מחק את הקוד לדוגמה, וצור את הקבצים מתיקיית `apps-script/` בפרויקט הזה:
-   - `Code.gs` — הדבק את התוכן של `apps-script/Code.gs`.
-   - קובץ חדש **File → New → Script** בשם `Setup` — הדבק את `apps-script/Setup.gs`.
+3. מחק את הקוד לדוגמה, והדבק **2 קבצים בלבד** מתיקיית `apps-script/`:
+   - ב־`Code.gs` הקיים — הדבק את כל התוכן של `apps-script/Code.gs` (כולל ההתקנה).
    - קובץ חדש **File → New → HTML** בשם `Index` — הדבק את `apps-script/Index.html`.
    - (אופציונלי) ב־Project Settings סמן "Show appsscript.json" והדבק את `apps-script/appsscript.json`.
 4. בחר למעלה את הפונקציה **`setup`** ולחץ **Run**. אשר את ההרשאות שגוגל מבקשת. זה יוצר את כל הטאבים ומזין את רשימת החיילים.
@@ -34,6 +33,20 @@
    - **Who has access:** Anyone with Google account (או "Anyone within [הארגון]" אם יש)
    - לחץ **Deploy** והעתק את כתובת ה־Web app.
 6. שלח את הכתובת לחיילים. הם ייכנסו עם חשבון הגוגל שלהם ויראו את הלוח.
+
+## התקנה חלופית דרך clasp (למי שנוח לו עם טרמינל)
+
+במקום העתק-הדבק, אפשר להעלות הכל בפקודה אחת מהמחשב שלך:
+
+```bash
+npm install -g @google/clasp
+clasp login                                    # הזדהות בדפדפן — פעם אחת
+cd apps-script
+clasp create --type sheets --title "שבצ״ק מוצב"
+clasp push                                     # מעלה את Code.gs + Index.html
+clasp open                                     # פותח את הפרויקט
+```
+אחר כך: הרץ `setup` פעם אחת, ואז Deploy → New deployment → Web app.
 
 ## שימוש יומיומי
 
