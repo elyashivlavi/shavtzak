@@ -15,7 +15,7 @@ var SHEET_STATS     = 'stats';
 var SHEET_CONFIG    = 'config';
 
 // ===== כותרות =====
-var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'internal_note'];
+var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note'];
 var SCHEDULE_HEADERS = ['block_date', 'position', 'slot', 'start', 'end', 'day_label',
                         'soldier_id', 'soldier_name', 'standby', 'note'];
 var STATS_HEADERS    = ['soldier_id', 'name', 'cumulative_guard_hours', 'guard_blocks', 'last_guard_block'];
@@ -28,7 +28,8 @@ var DEFAULT_CONFIG = {
   guard_count:      '4',        // כמה חיילים על השמירה בכל בלוק
   patrol_morning:   '06:00',    // שעת פטרול בוקר
   patrol_evening:   '18:00',    // שעת פטרול ערב
-  admin_emails:     'elyashivlavi@gmail.com'
+  admin_emails:     'elyashivlavi@gmail.com',
+  admin_password:   'admin1234'  // סיסמת מצב מנהל (אין התחברות גוגל) — שנה בטאב config
 };
 
 // ================================================================
@@ -36,6 +37,7 @@ var DEFAULT_CONFIG = {
 // ================================================================
 
 function doGet(e) {
+  ensureReady_(); // התקנה אוטומטית בטעינה הראשונה המורשית (במקום הרצת setup ידנית)
   var t = HtmlService.createTemplateFromFile('Index');
   return t.evaluate()
     .setTitle('שבצ"ק מוצב')
@@ -69,10 +71,15 @@ function getUserContext() {
   };
 }
 
-function requireAdmin_() {
-  var ctx = getUserContext();
-  if (!ctx.isAdmin) throw new Error('אין הרשאה — פעולה זו מיועדת למנהל בלבד.');
-  return ctx;
+/** אימות מצב מנהל לפי סיסמה (אין התחברות גוגל — הגישה ציבורית) */
+function isAdminPassword_(pw) {
+  var real = String(getConfig('admin_password') || '');
+  return real !== '' && String(pw || '') === real;
+}
+
+function requireAdmin_(pw) {
+  if (!isAdminPassword_(pw)) throw new Error('אין הרשאה — סיסמת מנהל שגויה.');
+  return true;
 }
 
 // ================================================================
@@ -80,22 +87,30 @@ function requireAdmin_() {
 // ================================================================
 
 /** כל מה שהממשק צריך בטעינה: המשתמש, קונפיג, החיילים, השיבוץ המפורסם, וטיוטה (למנהל) */
-function getBootstrap() {
+function getBootstrap(pw) {
   ensureReady_();
   var ctx = getUserContext();
+  ctx.isAdmin = isAdminPassword_(pw);  // מצב מנהל לפי סיסמה בלבד (גישה ציבורית ללא התחברות)
+
+  // ספריית חיילים ציבורית לבחירת "לוז אישי" ולכפתורי יצירת קשר — בלי מייל/הערה פנימית
+  var roster = readTable(SHEET_SOLDIERS)
+    .filter(function (s) { return s.active + '' !== 'FALSE' && s.active !== false; })
+    .map(function (s) { return { id: s.id, name: s.name, role: s.role, phone: s.phone || '' }; });
+
+  var cfg = getConfigAll();
+  delete cfg.admin_password;  // אסור לחשוף סוד ללקוח
+  delete cfg.admin_emails;
   var out = {
     user: ctx,
-    config: getConfigAll(),
+    config: cfg,
     published: buildScheduleView_(readTable(SHEET_PUBLISHED)),
-    hasDraft: readTable(SHEET_DRAFT).length > 0
+    hasDraft: readTable(SHEET_DRAFT).length > 0,
+    roster: roster
   };
   if (ctx.isAdmin) {
     out.soldiers = readTable(SHEET_SOLDIERS);
     out.draft = buildScheduleView_(readTable(SHEET_DRAFT));
     out.stats = readTable(SHEET_STATS);
-  } else {
-    // חייל רגיל: רק השיבוץ האישי שלו + הרשימה הכללית המפורסמת (בלי מידע פנימי)
-    out.mySchedule = ctx.isKnown ? filterMySchedule_(out.published, ctx.soldierId) : [];
   }
   return out;
 }
@@ -104,8 +119,8 @@ function getBootstrap() {
  * מייצר את הבלוק הבא (24 שעות) לטיוטה — לפי הוגנות. לא נחשף לחיילים עד לאישור.
  * forcePatrolIds — רשימת מזהי חיילים שחייבים להיות בפטרול בבלוק הזה (לא ייכנסו לעמדות).
  */
-function generateNextRotation(forcePatrolIds) {
-  requireAdmin_();
+function generateNextRotation(forcePatrolIds, pw) {
+  requireAdmin_(pw);
   var cfg = getConfigAll();
   var anchorHour = parseInt(cfg.anchor_hour, 10);
   var shiftHours = parseInt(cfg.shift_hours, 10);
@@ -188,8 +203,8 @@ function generateNextRotation(forcePatrolIds) {
 }
 
 /** אישור ופרסום: מעתיק את הטיוטה ל"מפורסם" ומעדכן את צבירת השעות. רק אחרי זה החיילים רואים. */
-function publishDraft() {
-  requireAdmin_();
+function publishDraft(pw) {
+  requireAdmin_(pw);
   var draft = readTable(SHEET_DRAFT);
   if (!draft.length) throw new Error('אין טיוטה לפרסום. צור שיבוץ קודם.');
 
@@ -208,15 +223,15 @@ function publishDraft() {
 }
 
 /** מבטל את הטיוטה בלי לפרסם */
-function discardDraft() {
-  requireAdmin_();
+function discardDraft(pw) {
+  requireAdmin_(pw);
   clearTable_(SHEET_DRAFT);
   return { ok: true };
 }
 
 /** עריכה ידנית של משבצת בטיוטה (מחליף חייל במשמרת). משפיע רק על הטיוטה — לא חשוף לחיילים. */
-function editAssignment(blockDate, position, slot, newSoldierId) {
-  requireAdmin_();
+function editAssignment(blockDate, position, slot, newSoldierId, pw) {
+  requireAdmin_(pw);
   var draft = readTable(SHEET_DRAFT);
   if (!draft.length) throw new Error('אין טיוטה פעילה לעריכה.');
   var soldiers = soldiersMap_();
@@ -240,8 +255,8 @@ function editAssignment(blockDate, position, slot, newSoldierId) {
 //  ניהול חיילים
 // ================================================================
 
-function addSoldier(name, email, role, guardEligible) {
-  requireAdmin_();
+function addSoldier(name, email, role, guardEligible, phone, pw) {
+  requireAdmin_(pw);
   if (!name) throw new Error('חובה שם.');
   var soldiers = readTable(SHEET_SOLDIERS);
   var id = 's' + (soldiers.length + 1) + '_' + Date.now().toString(36);
@@ -252,19 +267,20 @@ function addSoldier(name, email, role, guardEligible) {
     role: role || 'soldier',
     active: 'TRUE',
     guard_eligible: guardEligible === false ? 'FALSE' : 'TRUE',
+    phone: phone || '',
     internal_note: ''
   });
   writeTable(SHEET_SOLDIERS, soldiers);
   return { ok: true, id: id };
 }
 
-function updateSoldier(id, fields) {
-  requireAdmin_();
+function updateSoldier(id, fields, pw) {
+  requireAdmin_(pw);
   var soldiers = readTable(SHEET_SOLDIERS);
   var found = false;
   soldiers.forEach(function (s) {
     if (s.id === id) {
-      ['name', 'email', 'role', 'active', 'guard_eligible', 'internal_note'].forEach(function (k) {
+      ['name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note'].forEach(function (k) {
         if (fields[k] !== undefined) s[k] = fields[k];
       });
       found = true;
@@ -276,8 +292,8 @@ function updateSoldier(id, fields) {
 }
 
 /** הורדת חייל = סימון כלא-פעיל (שומר היסטוריה וסטטיסטיקה) */
-function removeSoldier(id) {
-  return updateSoldier(id, { active: 'FALSE' });
+function removeSoldier(id, pw) {
+  return updateSoldier(id, { active: 'FALSE' }, pw);
 }
 
 // ================================================================
@@ -364,6 +380,20 @@ function filterMySchedule_(view, soldierId) {
 
 function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
+/**
+ * ממיר ערך תא לטקסט בטוח לסריאליזציה. Google Sheets מחזיר תאי תאריך/שעה כאובייקטי Date,
+ * ו-google.script.run נכשל בסריאליזציה שלהם (מחזיר null ללקוח). מעצבים ב-GMT כדי לשחזר
+ * את השעה/תאריך המקוריים (התא מאוחסן כ-UTC של שעון הקיר).
+ */
+function cellStr_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return v.getUTCFullYear() < 1900
+      ? Utilities.formatDate(v, 'GMT', 'HH:mm')
+      : Utilities.formatDate(v, 'GMT', 'yyyy-MM-dd');
+  }
+  return v;
+}
+
 function readTable(sheetName) {
   var sheet = ss_().getSheetByName(sheetName);
   if (!sheet) return [];
@@ -375,7 +405,7 @@ function readTable(sheetName) {
     var row = values[i];
     if (row.join('') === '') continue;
     var obj = {};
-    for (var j = 0; j < headers.length; j++) obj[headers[j]] = row[j];
+    for (var j = 0; j < headers.length; j++) obj[headers[j]] = cellStr_(row[j]);
     out.push(obj);
   }
   return out;
@@ -494,6 +524,9 @@ var SEED_SOLDIERS = [
 // חיילים שחייבים בפטרול בבלוק ההתחלתי (היום) — לא ייכנסו לעמדות בבלוק הראשון.
 var SEED_FORCE_PATROL = ['גלעד דביר', 'אביאל גיאת'];
 
+// שומרי הבלוק ההתחלתי (כוננות/סבב קרוב), לפי סדר המשמרות מ-12:00. אם ריק — נופל לברירת מחדל.
+var SEED_FIRST_GUARDS = ['עופר קאסה', 'יהודה ונדרמן', 'בנג\'י פירר', 'אלישיב לביא'];
+
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -513,7 +546,7 @@ function setup() {
   seedSoldiers_();
   seedFirstBlock_();
 
-  SpreadsheetApp.getUi && flashMsg_('ההתקנה הושלמה. פרוס את האפליקציה: Deploy → New deployment → Web app.');
+  flashMsg_('ההתקנה הושלמה. פרוס את האפליקציה: Deploy → New deployment → Web app.');
 }
 
 function ensureSheet_(ss, name, headers) {
@@ -545,6 +578,7 @@ function seedSoldiers_() {
       role: s[2],
       active: 'TRUE',
       guard_eligible: s[3] ? 'TRUE' : 'FALSE',
+      phone: s[5] || '',
       internal_note: s[4]
     };
   });
@@ -562,18 +596,26 @@ function seedFirstBlock_() {
   var shiftsPerDay = Math.round(24 / shiftHours);
 
   var soldiers = readTable(SHEET_SOLDIERS).filter(function (s) { return truthy_(s.active); });
-  // כשירים לעמדות, למעט מי שחייב בפטרול היום (גלעד דביר, אביאל גיאת)
-  var pool = soldiers.filter(function (s) {
-    return truthy_(s.guard_eligible) && SEED_FORCE_PATROL.indexOf(s.name) === -1;
-  });
+  var byName = {};
+  soldiers.forEach(function (s) { byName[s.name] = s; });
 
-  // מסדרים כך שעופר קאסה ראשון (שומר מ-12:00)
-  pool.sort(function (a, b) {
-    if (a.name === 'עופר קאסה') return -1;
-    if (b.name === 'עופר קאסה') return 1;
-    return String(a.name).localeCompare(String(b.name));
-  });
-  var guards = pool.slice(0, guardCount);
+  var guards;
+  if (SEED_FIRST_GUARDS && SEED_FIRST_GUARDS.length) {
+    // רשימת שומרים מפורשת לבלוק ההתחלתי, לפי הסדר הנתון (מ-12:00 והלאה)
+    guards = SEED_FIRST_GUARDS.map(function (n) { return byName[n]; })
+      .filter(Boolean).slice(0, guardCount);
+  } else {
+    // ברירת מחדל: כשירים לעמדות (למעט מוחרגי-פטרול), עופר קאסה מ-12:00, ואז אלפביתי
+    var pool = soldiers.filter(function (s) {
+      return truthy_(s.guard_eligible) && SEED_FORCE_PATROL.indexOf(s.name) === -1;
+    });
+    pool.sort(function (a, b) {
+      if (a.name === 'עופר קאסה') return -1;
+      if (b.name === 'עופר קאסה') return 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+    guards = pool.slice(0, guardCount);
+  }
   var guardIds = {};
   guards.forEach(function (g) { guardIds[g.id] = true; });
 
