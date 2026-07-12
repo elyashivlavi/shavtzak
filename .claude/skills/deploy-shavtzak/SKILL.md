@@ -99,16 +99,18 @@ clasp create --type sheets --title "שבצ״ק מוצב"
 GOTCHA: `clasp create` OVERWRITES local `appsscript.json` with a default (wrong timezone,
 no `webapp` block). Immediately restore the repo version, then push:
 ```bash
-git checkout HEAD -- apps-script/appsscript.json   # Asia/Jerusalem + webapp executeAs USER_DEPLOYING, access ANYONE
+git checkout HEAD -- apps-script/appsscript.json   # Asia/Jerusalem, executeAs USER_DEPLOYING, access ANYONE_ANONYMOUS, non-sensitive oauthScopes
 clasp push -f
 clasp create-deployment --description "shavtzak web app"
 ```
 `clasp create` also creates the bound Sheet (the DB) — note its Drive URL from the output.
 
-## Hand-off to the user (the one manual step)
-Give the user the web-app URL and tell them: open it once, sign in with the admin Google
-account (elyashivlavi@gmail.com), approve the permission prompt. That first load auto-runs
-setup (builds tabs, seeds 12 soldiers, seeds first block). Then share the URL with soldiers.
+## Hand-off to the user
+The app is **public, no login** — soldiers just open the short URL, no Google account needed.
+The only one-time step is the **deployer authorization** (see "Deployer authorization" above): the
+owner (elyashivlavi@gmail.com) runs `setup`/`doGet` once from the editor to grant the non-sensitive
+scopes and build the DB. After that, share the short URL with soldiers. Admin uses the "מצב מנהל"
+button + password (`config.admin_password`).
 
 ## Verify
 - `clasp list-deployments` shows the new `AKfyc…` deployment.

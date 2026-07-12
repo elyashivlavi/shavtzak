@@ -97,9 +97,10 @@ function soldierWindows_() {
   for (var r = 1; r < values.length; r++) {
     var id = values[r][iId];
     if (!id) continue;
+    var sv = iS >= 0 ? values[r][iS] : '', ev = iE >= 0 ? values[r][iE] : '';
     map[id] = {
-      start: (iS >= 0 && values[r][iS] instanceof Date) ? values[r][iS].getTime() : null,
-      end:   (iE >= 0 && values[r][iE] instanceof Date) ? values[r][iE].getTime() : null
+      start: Object.prototype.toString.call(sv) === '[object Date]' ? sv.getTime() : null,
+      end:   Object.prototype.toString.call(ev) === '[object Date]' ? ev.getTime() : null
     };
   }
   return map;
@@ -148,6 +149,7 @@ function getBootstrap(pw) {
     out.soldiers = readTable(SHEET_SOLDIERS);
     out.draft = buildScheduleView_(readTable(SHEET_DRAFT));
     out.stats = readTable(SHEET_STATS);
+    out.duty = dutyBreakdown_();
   }
   return out;
 }
@@ -640,6 +642,41 @@ function shiftStarts_(cfg) {
 }
 
 function parseHourNum_(t) { var m = String(t).match(/^(\d{1,2})/); return m ? parseInt(m[1], 10) : 0; }
+
+/** משך משמרת בשעות מתוך "HH:MM"–"HH:MM" (עוטף חצות). */
+function shiftDurationHours_(start, end) {
+  var d = parseHourNum_(end) - parseHourNum_(start);
+  if (d <= 0) d += 24;
+  return d;
+}
+
+/**
+ * פירוק עומסים לכל חייל מההיסטוריה המפורסמת: שעות עמדה/כוננות (שמירה) מול פטרול.
+ * עמדה = סכום שעות משמרות השמירה; כוננות = מספר ימי-שמירה × 24 (בכוננות לכל הבלוק);
+ * פטרול = מספר שיבוצי פטרול.
+ */
+function dutyBreakdown_() {
+  var pub = readTable(SHEET_PUBLISHED);
+  var map = {};
+  readTable(SHEET_SOLDIERS).forEach(function (s) {
+    map[s.id] = { soldier_id: s.id, name: s.name, guard_hours: 0, guard_days: {}, patrol_count: 0 };
+  });
+  pub.forEach(function (r) {
+    var m = map[r.soldier_id];
+    if (!m) return;
+    if (r.position === 'guard') { m.guard_hours += shiftDurationHours_(r.start, r.end); m.guard_days[r.block_date] = 1; }
+    else m.patrol_count++;
+  });
+  return Object.keys(map).map(function (k) {
+    var m = map[k];
+    return {
+      soldier_id: m.soldier_id, name: m.name,
+      guard_hours: m.guard_hours,
+      standby_hours: Object.keys(m.guard_days).length * 24,
+      patrol_count: m.patrol_count
+    };
+  }).filter(function (m) { return m.guard_hours || m.patrol_count; });
+}
 
 /** תווית יום — האם המשמרת ביום הבלוק או למחרת */
 function dayLabel_(startHour) {

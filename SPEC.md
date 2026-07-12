@@ -128,8 +128,12 @@ Fairness stats are always **rebuilt from published history** so manual edits are
 ## 6. Weekly generation
 
 - The admin can generate a **whole week** (default 7 consecutive 24h blocks) into the draft in one action.
-- Fairness must accumulate **across the generated blocks** (a running tally), so the week is balanced end-to-end, not just per-block.
-- Presence windows are respected per block (a soldier present only part of the week is placed only on covered days).
+- The generator must, in priority order:
+  1. **Balance guard-days across the week** — each block, prefer soldiers with the fewest guard-days so far this week, so static/patrol load is even across everyone.
+  2. **Historical fairness** — then lowest `cumulative_guard_hours`, then earliest `last_guard_block`.
+  3. **Rotate night shifts** — assign the night positions (shifts starting 00:00–06:00) to whoever has done the fewest nights so far this week.
+- Fairness accumulates **across the generated blocks** (a running tally), so the week is balanced end-to-end, not just per-block.
+- Presence windows and exclusions are respected per block (a soldier present only part of the week is placed only on covered days).
 
 ---
 
@@ -140,9 +144,10 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 ### 7.1 Tab "לוז אישי" (Personal) — public
 - **Soldier picker**: choose a name from the active roster. The selection **persists** across reloads (per device).
 - **Date navigation**: `‹  [date input, default today]  ›  היום`. Changing it filters to that day.
-- **"כרגע" (Now)** card: current status for the selected soldier/day — on guard / not on guard now / on patrol-or-base — plus a **"בכוננות 12:00–12:00"** badge when the soldier is on standby.
+- **"כרגע" (Now)** card: current status for the selected soldier — on guard / not on guard now / on patrol-or-base — plus a **"בכוננות 12:00–12:00"** badge when on standby. Always reflects **today**, unaffected by the date picker.
 - **"המשמרת הבאה" (Next shift)** card: the soldier's next upcoming guard shift (time + date), independent of the picked day.
 - **Contact** card: phone + **call** and **WhatsApp** buttons (only if a phone exists).
+- **Date navigation** (`‹ [date, default today] › היום`) — scopes **only the shift list below it**, not the "כרגע"/next/contact cards.
 - **List** of the soldier's shifts for the selected day (guard shifts with times + standby tag; patrols).
 
 ### 7.2 Tab "שבצק" (Board) — public
@@ -157,7 +162,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 ### 7.3 Admin-only tabs (behind password)
 - **"טיוטה" (Draft):** generate next block, **generate week (7 days)**, optionally mark "must-patrol" soldiers for the next block, edit any guard slot inline, then **Approve & Publish** or **Discard**. A banner reminds that the draft is not visible to soldiers.
 - **"חיילים" (Soldiers):** add a soldier (name, phone, email, role, guard-eligible); list all with their presence window (`start_date`–`end_date`, or "קבוע" if none) and a private-note indicator; remove (soft-delete → inactive, history kept). Presence dates are edited directly in the DB.
-- **"הוגנות" (Fairness):** table of cumulative guard hours per soldier, sorted ascending, so the admin can see who's next.
+- **"הוגנות" (Fairness):** (a) cumulative guard hours per soldier, sorted ascending, so the admin sees who's next; (b) a **load table** per soldier of **guard (static) hours** + **standby hours** (guard-days × 24) vs **patrol count**, from published history.
 
 ---
 

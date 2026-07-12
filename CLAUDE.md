@@ -68,5 +68,7 @@ The project is **already deployed** via `clasp` (installed and logged in). Full 
 
 ## Dev conventions
 - **Every `clasp redeploy` is immediately followed by `git commit` + `git push origin main`** (user instruction). Never leave a deploy unpushed. The active branch is `main` (tracks `origin/main`).
+- **On every spec/behavior change, update `SPEC.md`** in the same change (user instruction). `SPEC.md` is the implementation-agnostic source of truth for what's stored and what's shown — keep it in sync with the code.
 - The developer's identity is not mentioned in commits/code.
 - `.gs` syntax is checked locally by copying to `.js` and running `node -c`; the JS in `Index.html` is checked via `vm.createScript` (Apps Script runs V8).
+- **Tests:** `node apps-script/tests/spec.test.js` — loads `Code.gs` in a Node vm with a mocked Sheets API and asserts the SPEC behaviors (fairness/balance, presence windows, exclusions, publish, secret-stripping, text storage, duty breakdown). Run before every deploy; extend it when SPEC changes.

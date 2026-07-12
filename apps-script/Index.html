@@ -230,10 +230,11 @@ function viewPersonal() {
   var me = null;
   roster.forEach(function (s) { if (s.id === STATE.selectedId) me = s; });
   var allItems = soldierGuardItems_(STATE.selectedId);
-  var items = allItems.filter(function (x) { return x.b.block_date === STATE.boardDate; });
-  var guards = items.filter(function (x) { return x.kind === 'guard'; });
+  var todayItems = allItems.filter(function (x) { return x.b.block_date === todayStr(); });
+  var guards = todayItems.filter(function (x) { return x.kind === 'guard'; });  // "כרגע" תמיד לפי היום
+  var dayItems = allItems.filter(function (x) { return x.b.block_date === STATE.boardDate; });  // הרשימה לפי בורר התאריך
 
-  // "כרגע" — הערכה לפי שעון המכשיר מול משמרות השמירה
+  // "כרגע" — הערכה לפי שעון המכשיר מול משמרות השמירה של היום
   var now = new Date();
   var nowMin = now.getHours() * 60 + now.getMinutes();
   var onGuardNow = guards.some(function (x) {
@@ -256,7 +257,7 @@ function viewPersonal() {
         '<div class="muted">' + esc(next.b.block_date) + ' · ' + esc(next.it.day_label) + '</div></div>'
     : '';
 
-  var listRows = items.length ? items.map(function (x) {
+  var listRows = dayItems.length ? dayItems.map(function (x) {
     var kind = x.kind === 'guard'
       ? '<span class="pill guard">שמירה</span>' + (truthy(x.it.standby) ? ' <span class="pill standby">כוננות 12:00–12:00</span>' : '')
       : '<span class="pill patrol">פטרול</span>';
@@ -265,13 +266,13 @@ function viewPersonal() {
       : esc(x.it.day_label) + ' ' + esc(x.it.start);
     return '<div style="padding:7px 0;border-bottom:1px solid var(--border)">' + kind + ' <strong>' + time + '</strong> <span class="kv">· ' + esc(x.b.block_date) + '</span></div>';
   }).join('') : '<p class="muted">אין שיבוץ לתאריך זה.</p>';
-  var listCard = '<div class="card"><h2>השיבוצים של ' + esc(me ? me.name : '') + '</h2>' + listRows + '</div>';
+  var listCard = '<div class="card"><h2>השיבוצים של ' + esc(me ? me.name : '') + '</h2>' + dateNavHtml() + listRows + '</div>';
 
   var contactCard = (me && normPhone(me.phone))
     ? '<div class="card"><h2>יצירת קשר</h2><div class="muted">' + esc(me.phone) + '</div>' + contactRow(me.phone) + '</div>'
     : '';
 
-  return picker + dateNavHtml() + nowCard + nextCard + contactCard + listCard;
+  return picker + nowCard + nextCard + contactCard + listCard;
 }
 
 function wirePersonal() {
@@ -532,9 +533,23 @@ function viewFairness() {
     return '<tr><td>' + esc(s.name) + '</td><td>' + esc(s.cumulative_guard_hours) +
       '</td><td>' + esc(s.guard_blocks) + '</td><td class="kv">' + (esc(s.last_guard_block) || '—') + '</td></tr>';
   }).join('');
-  return '<div class="card"><h2>צבירת שעות שמירה</h2>' +
+  var fairnessCard = '<div class="card"><h2>צבירת שעות שמירה</h2>' +
     '<p class="muted">האלגוריתם מעלה לשמירה את מי שצבר הכי מעט שעות. מיון מהנמוך לגבוה.</p>' +
     '<table><tr><th>חייל</th><th>שעות מצטברות</th><th>מס\' בלוקים</th><th>שמירה אחרונה</th></tr>' + rows + '</table></div>';
+
+  // טבלת עומסים: עמדה+כוננות מול פטרול (מההיסטוריה המפורסמת)
+  var duty = (STATE.boot.duty || []).slice().sort(function (a, b) { return Number(b.guard_hours) - Number(a.guard_hours); });
+  var dutyCard = '';
+  if (duty.length) {
+    var drows = duty.map(function (d) {
+      return '<tr><td>' + esc(d.name) + '</td><td>' + esc(d.guard_hours) + '</td><td>' + esc(d.standby_hours) +
+        '</td><td>' + esc(d.patrol_count) + '</td></tr>';
+    }).join('');
+    dutyCard = '<div class="card"><h2>עומסים: עמדה/כוננות מול פטרול</h2>' +
+      '<p class="muted">שעות עמדה = סכום משמרות השמירה. כוננות = ימי-שמירה × 24. פטרול = מספר שיבוצי פטרול.</p>' +
+      '<table><tr><th>חייל</th><th>שעות עמדה</th><th>שעות כוננות</th><th>פטרולים</th></tr>' + drows + '</table></div>';
+  }
+  return fairnessCard + dutyCard;
 }
 
 // ---- עזר ----
