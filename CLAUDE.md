@@ -64,6 +64,6 @@
 - הערה: העורך הפתוח מציג לפעמים גרסה מקומית ישנה; אחרי `clasp push` צריך רענון. בדפדפן — רענון קשיח (Cmd+Shift+R) כדי לעקוף cache.
 
 ## מוסכמות פיתוח
+- **כל `clasp redeploy` מלווה מיד ב-`git commit` + `git push origin main`** (הוראת המשתמש). לא להשאיר פריסה בלי דחיפה ל-GitHub. הענף הפעיל הוא `main` (עוקב `origin/main`).
 - זהות המפתח לא מוזכרת בקומיטים/קוד.
-- ענף עבודה: `claude/military-duty-roster-pii6fk`. לא פותחים PR אלא אם המשתמש מבקש.
-- תחביר `.gs` נבדק מקומית ע"י העתקה ל-`.js` והרצת `node -c` (Apps Script רץ V8).
+- תחביר `.gs` נבדק מקומית ע"י העתקה ל-`.js` והרצת `node -c`; ה-JS ב-`Index.html` נבדק ע"י `vm.createScript` (Apps Script רץ V8).
