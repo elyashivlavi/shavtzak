@@ -52,6 +52,8 @@
   .joinleave { display: flex; gap: 8px; flex-wrap: wrap; }
   .joinleave label { display: flex; flex-direction: column; gap: 2px; }
   .joinleave input { width: auto; font-size: 12px; padding: 4px 6px; }
+  .skills { display: flex; flex-direction: column; gap: 2px; }
+  .skills label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
   .other-day td { color: #94a3b8; }            /* שעות יום למחרת — אפור קריא */
   .other-day td:first-child { font-style: italic; }
   .busy { position: fixed; inset: 0; background: rgba(255,255,255,.45); display: flex; align-items: center; justify-content: center; z-index: 200; }
@@ -544,6 +546,15 @@ function wireDraft() {
 }
 
 // ---- חיילים (מנהל) ----
+var SKILLS = ['קלע', 'רחפן'];   // כישורים רב-ערכיים (לצד ה-role) — לצורך החלת כללי שיבוץ
+function skillArr(s) { return String((s && s.skills) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+function skillBoxes(id, s) {   // תיבות סימון קלע/רחפן לשורת חייל
+  var have = skillArr(s);
+  return '<div class="skills">' + SKILLS.map(function (k) {
+    return '<label class="kv"><input type="checkbox" class="sk" data-id="' + esc(id) + '" data-skill="' + esc(k) + '"' +
+      (have.indexOf(k) !== -1 ? ' checked' : '') + ' style="width:auto"> ' + esc(k) + '</label>';
+  }).join('') + '</div>';
+}
 function viewSoldiers() {
   var soldiers = STATE.boot.soldiers || [];
   var rows = soldiers.map(function (s) {
@@ -554,6 +565,7 @@ function viewSoldiers() {
       '<td class="kv">' + (esc(s.email) || '—') + '</td>' +
       '<td>' + roleName(s.role) + '</td>' +
       '<td>' + (s.guard_eligible + '' !== 'FALSE' && s.guard_eligible !== false ? 'כן' : 'לא') + '</td>' +
+      '<td>' + skillBoxes(s.id, s) + '</td>' +
       '<td><div class="joinleave">' +
         '<label class="kv">מצטרף<input type="datetime-local" class="sd-start" data-id="' + esc(s.id) + '" value="' + toDTLocal(s.start_date) + '"></label>' +
         '<label class="kv">עוזב<input type="datetime-local" class="sd-end" data-id="' + esc(s.id) + '" value="' + toDTLocal(s.end_date) + '"></label>' +
@@ -570,11 +582,12 @@ function viewSoldiers() {
     '<input id="ns-email" placeholder="מייל (לא חובה)">' +
     '<select id="ns-role"><option value="soldier">חייל</option><option value="officer">קצין מוצב</option><option value="sergeant">סמל</option></select>' +
     '<label class="muted"><input type="checkbox" id="ns-guard" checked style="width:auto"> כשיר לעמדות</label>' +
+    SKILLS.map(function (k) { return '<label class="muted"><input type="checkbox" class="ns-sk" data-skill="' + esc(k) + '" style="width:auto"> ' + esc(k) + '</label>'; }).join('') +
     '<button id="btn-add">הוסף</button>' +
     '</div></div>' +
     '<div class="card"><h2>רשימת חיילים</h2>' +
-    '<table><tr><th>שם</th><th>טלפון</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th>נוכחות בבסיס</th><th></th></tr>' + rows + '</table>' +
-    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). טלפון מוצג לכולם. <strong>נוכחות</strong>: הגדר מתי חייל <strong>מצטרף/עוזב</strong> — מחוץ לחלון הוא לא ישובץ. ריק בשניהם = קבוע בבסיס. משפיע על "ייצר שבוע".</p></div>';
+    '<table><tr><th>שם</th><th>טלפון</th><th>מייל</th><th>תפקיד</th><th>עמדות</th><th>כישורים</th><th>נוכחות בבסיס</th><th></th></tr>' + rows + '</table>' +
+    '<p class="muted" style="margin-top:10px">🔒 = הערה פנימית (מוצגת רק לך). טלפון מוצג לכולם. <strong>כישורים</strong> (קלע/רחפן): מסמנים חייל לצורך כללי שיבוץ; חייל יכול להיות גם וגם. <strong>נוכחות</strong>: הגדר מתי חייל <strong>מצטרף/עוזב</strong> — מחוץ לחלון הוא לא ישובץ. ריק בשניהם = קבוע בבסיס. משפיע על "ייצר שבוע".</p></div>';
 }
 
 function wireSoldiers() {
@@ -582,9 +595,11 @@ function wireSoldiers() {
   if (add) add.onclick = function () {
     var name = document.getElementById('ns-name').value.trim();
     if (!name) { toast('חסר שם', true); return; }
+    var newSkills = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.ns-sk'), function (cb) { if (cb.checked) newSkills.push(cb.getAttribute('data-skill')); });
     callAdmin('addSoldier', [name, document.getElementById('ns-email').value.trim(),
       document.getElementById('ns-role').value, document.getElementById('ns-guard').checked,
-      document.getElementById('ns-phone').value.trim()],
+      document.getElementById('ns-phone').value.trim(), newSkills],
       function () { toast('נוסף'); reload(); });
   };
   Array.prototype.forEach.call(document.querySelectorAll('[data-remove]'), function (btn) {
@@ -604,6 +619,16 @@ function wireSoldiers() {
   }
   wireWindow('.sd-start', 'start_date');
   wireWindow('.sd-end', 'end_date');
+  // כישורים: בכל שינוי אוספים את כל התיבות של אותו חייל ושולחים כמערך
+  Array.prototype.forEach.call(document.querySelectorAll('.sk'), function (cb) {
+    cb.onchange = function () {
+      var id = cb.getAttribute('data-id'), skills = [];
+      Array.prototype.forEach.call(document.querySelectorAll('.sk[data-id="' + id + '"]'), function (x) {
+        if (x.checked) skills.push(x.getAttribute('data-skill'));
+      });
+      callAdmin('updateSoldier', [id, { skills: skills }], function () { toast('עודכן'); reload(); });
+    };
+  });
 }
 
 // "2026-07-13 12:00" (או תאריך בלבד) → ערך datetime-local "2026-07-13T12:00"

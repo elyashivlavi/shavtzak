@@ -258,6 +258,28 @@ test('updateSoldier persists join/leave (start_date/end_date)', () => {
   assert.throws(() => G.updateSoldier(id, { start_date: '' }, 'wrong'), 'must require admin');
 });
 
+// skills (קלע/רחפן) — multi-value capability tags for scheduling rules
+test('skills: updateSoldier normalizes + persists, hasSkill_ queries', () => {
+  reset();
+  const id = G.readTable('soldiers').find((s) => s.name === 'מתן כהן').id;
+  // array input, one bogus value dropped, dedup
+  G.updateSoldier(id, { skills: ['קלע', 'רחפן', 'רחפן', 'לא-קיים'] }, 'admin1234');
+  let s = G.readTable('soldiers').find((x) => x.id === id);
+  assert.strictEqual(s.skills, 'קלע,רחפן');
+  assert.strictEqual(G.hasSkill_(s, 'קלע'), true);
+  assert.strictEqual(G.hasSkill_(s, 'רחפן'), true);
+  assert.strictEqual(G.hasSkill_(s, 'מפקד'), false);
+  // string input clears to a single skill
+  G.updateSoldier(id, { skills: 'קלע' }, 'admin1234');
+  s = G.readTable('soldiers').find((x) => x.id === id);
+  assert.strictEqual(s.skills, 'קלע');
+  assert.strictEqual(G.soldierSkills_(s).join(','), 'קלע');
+  // addSoldier accepts skills as its new 6th arg
+  const r = G.addSoldier('לוחם חדש', '', 'soldier', true, '', ['רחפן'], 'admin1234');
+  const n = G.readTable('soldiers').find((x) => x.id === r.id);
+  assert.strictEqual(n.skills, 'רחפן');
+});
+
 // §1/§7.2 no double-booking detection
 test('findDoubleBooking_ flags overlaps, allows adjacent', () => {
   const ok = [

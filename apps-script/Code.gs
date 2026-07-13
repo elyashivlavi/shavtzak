@@ -15,7 +15,24 @@ var SHEET_STATS     = 'stats';
 var SHEET_CONFIG    = 'config';
 
 // ===== כותרות =====
-var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date'];
+var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date', 'skills'];
+// כישורים ניתנים-לשיבוץ-כללים (רב-ערכי, פסיקים ב-skills). role נשאר יחיד; skills מצטבר.
+var SKILL_OPTIONS = ['קלע', 'רחפן'];
+/** מערך הכישורים של חייל (מפצל את שדה skills המופרד בפסיקים) */
+function soldierSkills_(s) {
+  return String((s && s.skills) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+}
+/** האם לחייל יש כישור מסוים (למשל 'קלע') */
+function hasSkill_(s, skill) { return soldierSkills_(s).indexOf(skill) !== -1; }
+/** מנרמל קלט כישורים (מערך או מחרוזת) למחרוזת פסיקים מתוך SKILL_OPTIONS בלבד, ללא כפילויות */
+function normSkills_(input) {
+  var arr = Array.isArray(input) ? input : String(input || '').split(',');
+  var seen = {}, out = [];
+  arr.map(function (x) { return String(x).trim(); }).forEach(function (x) {
+    if (x && SKILL_OPTIONS.indexOf(x) !== -1 && !seen[x]) { seen[x] = 1; out.push(x); }
+  });
+  return out.join(',');
+}
 var SCHEDULE_HEADERS = ['block_date', 'shift_date', 'position', 'slot', 'start', 'end', 'day_label',
                         'soldier_id', 'soldier_name', 'standby', 'note'];
 var STATS_HEADERS    = ['soldier_id', 'name', 'cumulative_guard_hours', 'guard_blocks', 'last_guard_block'];
@@ -525,7 +542,7 @@ function findDoubleBooking_(rows, anchorHour) {
 //  ניהול חיילים
 // ================================================================
 
-function addSoldier(name, email, role, guardEligible, phone, pw) {
+function addSoldier(name, email, role, guardEligible, phone, skills, pw) {
   requireAdmin_(pw);
   if (!name) throw new Error('חובה שם.');
   var soldiers = readTable(SHEET_SOLDIERS);
@@ -540,7 +557,8 @@ function addSoldier(name, email, role, guardEligible, phone, pw) {
     phone: phone || '',
     internal_note: '',
     start_date: '',
-    end_date: ''
+    end_date: '',
+    skills: normSkills_(skills)
   });
   writeTable(SHEET_SOLDIERS, soldiers);
   return { ok: true, id: id };
@@ -552,8 +570,8 @@ function updateSoldier(id, fields, pw) {
   var found = false;
   soldiers.forEach(function (s) {
     if (s.id === id) {
-      ['name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date'].forEach(function (k) {
-        if (fields[k] !== undefined) s[k] = fields[k];
+      ['name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date', 'skills'].forEach(function (k) {
+        if (fields[k] !== undefined) s[k] = k === 'skills' ? normSkills_(fields[k]) : fields[k];
       });
       found = true;
     }

@@ -49,13 +49,14 @@ be compared chronologically.
 | `id` | string | Stable unique id. |
 | `name` | string | Full name (display + identity in picker). |
 | `email` | string (optional) | Informational only; not used for auth. |
-| `role` | enum: `admin`,`officer`,`sergeant`,`soldier` | Display + role label. |
+| `role` | enum: `admin`,`officer`,`sergeant`,`soldier` | Single exclusive rank/role. Display + role label. |
 | `active` | boolean | Inactive soldiers are excluded from all scheduling but retained for history. |
 | `guard_eligible` | boolean | If false → **never** placed on guard positions (always patrol). |
 | `phone` | string (optional) | Public contact number for call/WhatsApp. Empty = not shown. |
 | `internal_note` | string (optional) | **Private to admin.** Never shown in the public UI. |
 | `start_date` | datetime (optional) | Start of the soldier's presence window in the base. |
 | `end_date` | datetime (optional) | End of the presence window. Empty start+end = **always present**. |
+| `skills` | comma-separated set from `{קלע, רחפן}` (optional) | **Multi-value capability tags**, orthogonal to `role` — a soldier may hold both, and any rank. Used to apply scheduling rules to marksmen (קלע) / drone operators (רחפן). Edited via the admin "חיילים" tab (checkboxes). Not shown in the public UI. |
 
 ### 3.2 Schedule entry (used for both `draft` and `published`)
 A flat list of rows; a "block" is all rows sharing a `block_date`.
@@ -170,7 +171,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 
 ### 7.3 Admin-only tabs (behind password)
 - **"טיוטה" (Draft):** generate next block, **generate week (7 days)**, optionally mark "must-patrol" soldiers for the next block, edit any guard slot inline, then **Approve & Publish** or **Discard**. A banner reminds that the draft is not visible to soldiers.
-- **"חיילים" (Soldiers):** add a soldier (name, phone, email, role, guard-eligible); list all with a private-note indicator; **set each soldier's join/leave presence window** (`start_date`/`end_date`, date+time) inline — outside the window the soldier isn't scheduled; empty both = permanently in base; remove (soft-delete → inactive, history kept).
+- **"חיילים" (Soldiers):** add a soldier (name, phone, email, role, guard-eligible, **skills** קלע/רחפן); list all with a private-note indicator; **toggle each soldier's skills** (קלע/רחפן checkboxes) inline; **set each soldier's join/leave presence window** (`start_date`/`end_date`, date+time) inline — outside the window the soldier isn't scheduled; empty both = permanently in base; remove (soft-delete → inactive, history kept).
 - **"הוגנות" (Fairness):** (a) cumulative guard hours per soldier, sorted ascending, so the admin sees who's next; (b) a **load table** per soldier of **guard (static) hours** + **standby hours** (guard-days × 24) vs **patrol shift count (morning/evening)** — patrol is **never shown as hours** (patrol hours are not meaningful; count morning/evening shifts instead). (c) a **day/night card** — per soldier, count of **day** vs **night** shifts (night = a shift starting 00:00–06:00) and the **night %**, with a target of **~25%** for everyone who does guard duty (flag deviations beyond ±15 points). A **"include draft" toggle (default on)** recomputes all three tables over published **+ the unpublished draft** (projected view) vs published-only.
 
 ---

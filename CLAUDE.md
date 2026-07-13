@@ -23,7 +23,7 @@ the database. UI is Hebrew, RTL.
 ## Spreadsheet tabs
 | Tab | Contents |
 |-----|----------|
-| `soldiers` | id, name, email, role, active, guard_eligible, phone, internal_note, start_date, end_date |
+| `soldiers` | id, name, email, role, active, guard_eligible, phone, internal_note, start_date, end_date, skills |
 | `schedule_draft` | schedule being edited (admin-private) |
 | `schedule_published` | schedule visible to soldiers |
 | `stats` | soldier_id, name, cumulative_guard_hours, guard_blocks, last_guard_block |
