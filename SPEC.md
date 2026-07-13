@@ -165,7 +165,8 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
   - **פטרול (Patrol)** — the patrol soldiers as a **single merged list** (no morning/evening split).
 - If no schedule exists for the chosen date, show a clear empty message.
 - **Admin inline switch:** an admin sees each guard slot as a dropdown and can swap the assigned soldier directly on the published board. On save the server **rejects any change that double-books a soldier at an overlapping time** (a soldier may not be in two positions at once); it also keeps guard/patrol consistent (the incoming soldier is removed from patrol; the displaced one is moved to patrol) and recomputes fairness stats.
-- **On-call (כוננות) editing:** on-call = the block's guards. In the כוננות card an admin can swap a whole on-call person (a dropdown per person), replacing them across **all** their guard shifts in that block at once — same double-booking/consistency guarantees. Because on-call is derived from the guards, replacing all of a block's shifts automatically updates the on-call set.
+- **On-call (כוננות):** on-call = the block's guards, so the כוננות card is **read-only** (shown to everyone, not editable even in admin) — it's derived from the עמדה shifts and updates automatically when the guard slots change.
+- **Loading indicator:** any server round-trip that refreshes data (entering admin mode, editing a shift, publishing, generating, etc.) shows a spinner overlay until it completes.
 
 ### 7.3 Admin-only tabs (behind password)
 - **"טיוטה" (Draft):** generate next block, **generate week (7 days)**, optionally mark "must-patrol" soldiers for the next block, edit any guard slot inline, then **Approve & Publish** or **Discard**. A banner reminds that the draft is not visible to soldiers.

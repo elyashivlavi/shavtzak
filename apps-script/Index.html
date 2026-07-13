@@ -54,6 +54,10 @@
   .joinleave input { width: auto; font-size: 12px; padding: 4px 6px; }
   .other-day td { color: #94a3b8; }            /* שעות יום למחרת — אפור קריא */
   .other-day td:first-child { font-style: italic; }
+  .busy { position: fixed; inset: 0; background: rgba(255,255,255,.45); display: flex; align-items: center; justify-content: center; z-index: 200; }
+  .busy-spin { width: 38px; height: 38px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-color-scheme: dark) { .busy { background: rgba(0,0,0,.35); } }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 12px; }
@@ -113,6 +117,7 @@
 </main>
 
 <div class="toast" id="toast"></div>
+<div class="busy hidden" id="busy"><div class="busy-spin"></div></div>
 
 <script>
 var ADMIN_TTL = 24 * 60 * 60 * 1000; // תוקף מצב מנהל: 24 שעות
@@ -135,18 +140,28 @@ function toast(msg, isErr) {
   setTimeout(function () { t.className = 'toast'; }, 3200);
 }
 
+// מחוון טעינה — מונה כדי לתמוך בקריאות חופפות
+var BUSY = 0;
+function busy(on) {
+  BUSY = Math.max(0, BUSY + (on ? 1 : -1));
+  document.getElementById('busy').classList.toggle('hidden', BUSY === 0);
+}
+
 // admin-privileged call — appends the stored password as the last argument
 function callAdmin(fn, args, cb) {
+  busy(true);
   google.script.run
-    .withSuccessHandler(function (res) { if (cb) cb(res); })
-    .withFailureHandler(function (err) { toast(err.message || 'שגיאה', true); })
+    .withSuccessHandler(function (res) { busy(false); if (cb) cb(res); })
+    .withFailureHandler(function (err) { busy(false); toast(err.message || 'שגיאה', true); })
     [fn].apply(null, (args || []).concat([STATE.adminPw]));
 }
 
 function loadBoot(cb) {
+  busy(true);
   google.script.run
-    .withSuccessHandler(function (boot) { STATE.boot = boot; if (cb) cb(); })
+    .withSuccessHandler(function (boot) { busy(false); STATE.boot = boot; if (cb) cb(); })
     .withFailureHandler(function (err) {
+      busy(false);
       document.getElementById('loading').textContent = 'שגיאה בטעינה: ' + (err.message || err);
     })
     .getBootstrap(STATE.adminPw);
@@ -350,12 +365,6 @@ function wireBoard() {
         function () { toast('עודכן ופורסם ✓'); reload(); });
     };
   });
-  Array.prototype.forEach.call(document.querySelectorAll('.oncall-edit'), function (sel) {
-    sel.onchange = function () {
-      callAdmin('swapGuardPerson', [sel.getAttribute('data-date'), sel.getAttribute('data-old'), sel.value],
-        function () { toast('הכוננות עודכנה ופורסמה ✓'); reload(); });
-    };
-  });
 }
 
 // רשימת השומרים בכוננות (standby) של בלוק — כל חייל פעם אחת
@@ -368,17 +377,9 @@ function standbyPairs_(block) {
   });
   return out;
 }
-// כרטיס כוננות: קריאה-בלבד (chips) או עריכה (dropdown להחלפת חייל-כוננות שלם בבלוק)
-function onCallHtml_(pairs, blockDate, editable) {
-  if (!pairs.length) return '<p class="muted">—</p>';
-  if (!editable) return chipsHtml_(pairs.map(function (p) { return p.name; }), 'guard');
-  var opts = function (cur) {
-    return (STATE.boot.soldiers || []).filter(function (s) { return s.active + '' !== 'FALSE' && s.active !== false; })
-      .map(function (s) { return '<option value="' + esc(s.id) + '"' + (s.id === cur ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('');
-  };
-  return '<div class="chips">' + pairs.map(function (p) {
-    return '<select class="oncall-edit" data-date="' + esc(blockDate) + '" data-old="' + esc(p.id) + '">' + opts(p.id) + '</select>';
-  }).join('') + '</div>';
+// כרטיס כוננות: קריאה-בלבד — נגזר ממשמרות העמדה (עריכה נעשית דרך עמדה, והכוננות מתעדכנת אוטומטית)
+function onCallHtml_(pairs) {
+  return chipsHtml_(pairs.map(function (p) { return p.name; }), 'guard');
 }
 
 function chipsHtml_(arr, cls) {
@@ -413,9 +414,9 @@ function renderBoardBlock(block, prevBlock, editable) {
   var afterPairs = standbyPairs_(block);
   var standbyHtml =
     '<div class="muted" style="margin-bottom:6px">עד 12:00</div>' +
-    (prevBlock ? onCallHtml_(beforePairs, prevBlock.block_date, editable) : '<p class="muted">— (אין בלוק קודם)</p>') +
+    (prevBlock ? onCallHtml_(beforePairs) : '<p class="muted">— (אין בלוק קודם)</p>') +
     '<div class="muted" style="margin:14px 0 6px">מ-12:00</div>' +
-    onCallHtml_(afterPairs, block.block_date, editable);
+    onCallHtml_(afterPairs);
 
   // פטרול — רשימה מאוחדת (בלי הפרדת בוקר/ערב), כל חייל פעם אחת
   var pSeen = {}, patrol = [];
