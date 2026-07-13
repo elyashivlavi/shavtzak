@@ -287,10 +287,11 @@ function viewPersonal() {
 
   var futureGuards = allItems.filter(function (x) { return x.kind === 'guard' && x.b.block_date >= todayStr(); });
   var next = futureGuards.length ? futureGuards[0] : null;
+  var nextDate = next ? itemCalDate_(next) : '';
   var nextCard = next
     ? '<div class="card"><div class="muted">המשמרת הבאה</div><div class="now-status">🕓 ' +
         esc(next.it.start) + '–' + esc(next.it.end) + '</div>' +
-        '<div class="muted">' + esc(next.b.block_date) + ' · ' + esc(next.it.day_label) + '</div></div>'
+        '<div class="muted">' + hebDay(nextDate) + ' · ' + esc(nextDate) + '</div></div>'
     : '';
 
   var listRows = dayItems.length ? dayItems.map(function (x) {
