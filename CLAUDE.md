@@ -49,7 +49,7 @@ The user wants placements done through Claude. On every roster generation, Claud
 
 ## Soldier-specific rules (important to preserve)
 - **אלישיב לביא** (elyashivlavi@gmail.com) = **admin** (role=admin).
-- **שמואל אטלי** = **outpost officer** (role=officer). Currently guard-eligible; to exclude — turn off `guard_eligible`.
+- **שמואל אטלי** = **outpost officer** (role=officer), `guard_eligible=FALSE` → **always patrol, never on positions** (user request; reason kept in `internal_note`).
 - **אסי פרץ** = **sergeant**, `guard_eligible=FALSE` → **always patrol, never on positions**. The reason is kept in `internal_note` only and **not shown in the public UI** (user request: keep it aside, not visible).
 - **גלעד דביר** and **אביאל גיאת** — must be on patrol **in the initial block (today)**. Implemented via `SEED_FORCE_PATROL` in `Code.gs`. One-time for the current block (not a permanent rule — pending user decision whether to make it permanent).
 - Initial block guard order (from 12:00): **עופר קאסה, יהודה ונדרמן, בנג׳י פירר, אלישיב לביא** — via `SEED_FIRST_GUARDS`.
