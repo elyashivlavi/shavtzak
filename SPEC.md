@@ -154,7 +154,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 - **"המשמרת הבאה" (Next shift)** card: the soldier's next upcoming guard shift (time + date), independent of the picked day.
 - **Contact** card: phone + **call** and **WhatsApp** buttons (only if a phone exists).
 - **Date navigation** (`‹ [date, default today] › היום`) — scopes **only the shift list below it**, not the "כרגע"/next/contact cards.
-- **List** of the soldier's shifts for the selected day (guard shifts with times + standby tag; patrols).
+- **List** of the soldier's shifts for the selected **calendar day (midnight → midnight)**, chosen by `shift_date` and ordered chronologically (guard shifts with times + standby tag; patrols). Mirroring the board: shifts **before 12:00 noon are greyed out** (dimmed) — they belong to the tail of the previous 12:00-anchored block.
 
 ### 7.2 Tab "שבצק" (Board) — public (admin can edit)
 - **Date navigation** identical to the personal tab (shared selected date). Defaults to today; prev/next step one day.

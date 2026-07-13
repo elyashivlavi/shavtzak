@@ -244,6 +244,12 @@ function soldierGuardItems_(soldierId) {
   });
   return out;
 }
+// התאריך הקלנדרי האמיתי של שורה (חצות עד חצות): shift_date אם קיים, אחרת נגזר מ-day_label
+function itemCalDate_(x) {
+  if (x.it.shift_date) return x.it.shift_date;
+  var morning = x.it.day_label === 'למחרת' || x.it.day_label === 'בוקר';
+  return morning ? addDays(x.b.block_date, 1) : x.b.block_date;
+}
 
 function viewPersonal() {
   var roster = rosterActive();
@@ -260,7 +266,9 @@ function viewPersonal() {
   var allItems = soldierGuardItems_(STATE.selectedId);
   var todayItems = allItems.filter(function (x) { return x.b.block_date === todayStr(); });
   var guards = todayItems.filter(function (x) { return x.kind === 'guard'; });  // "כרגע" תמיד לפי היום
-  var dayItems = allItems.filter(function (x) { return x.b.block_date === STATE.boardDate; });  // הרשימה לפי בורר התאריך
+  // הרשימה: יום קלנדרי מלא (חצות עד חצות) לפי shift_date, ממוין כרונולוגית. משמרות לפני 12:00 מוצגות באפור.
+  var dayItems = allItems.filter(function (x) { return itemCalDate_(x) === STATE.boardDate; })
+    .sort(function (a, b) { var sa = hhToMin(a.it.start), sb = hhToMin(b.it.start); return (sa == null ? 9999 : sa) - (sb == null ? 9999 : sb); });
 
   // "כרגע" — הערכה לפי שעון המכשיר מול משמרות השמירה של היום
   var now = new Date();
@@ -292,7 +300,9 @@ function viewPersonal() {
     var time = x.kind === 'guard'
       ? esc(x.it.start) + '–' + esc(x.it.end) + ' (' + esc(x.it.day_label) + ')'
       : esc(x.it.day_label) + ' ' + esc(x.it.start);
-    return '<div style="padding:7px 0;border-bottom:1px solid var(--border)">' + kind + ' <strong>' + time + '</strong> <span class="kv">· ' + esc(x.b.block_date) + '</span></div>';
+    var sm = hhToMin(x.it.start);
+    var preNoon = sm != null && sm < 720;   // לפני 12:00 — אפור (כמו בלוח שבצק)
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--border)' + (preNoon ? ';opacity:.5' : '') + '">' + kind + ' <strong>' + time + '</strong> <span class="kv">· ' + esc(x.it.shift_date || x.b.block_date) + '</span></div>';
   }).join('') : '<p class="muted">אין שיבוץ לתאריך זה.</p>';
   var listCard = '<div class="card"><h2>השיבוצים של ' + esc(me ? me.name : '') + '</h2>' + dateNavHtml() + listRows + '</div>';
 
