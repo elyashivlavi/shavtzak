@@ -126,9 +126,14 @@ Placement (who guards, in which shift) must satisfy, in order:
    block. They don't accrue guard hours, so fairness raises them sooner afterward (compensation).
 6. **Rest day:** after a guard-day (24h static/standby block) a soldier gets **at least one patrol
    day** before guarding again — never two consecutive guard-days (no 48h back-to-back static).
-   Relax only if too few soldiers are otherwise available.
+   Relax only if too few soldiers are otherwise available. The fairness view surfaces a
+   **consecutive-static-days** metric that must read 0 for everyone.
+7. **קלע (marksman) on patrol:** at least one soldier carrying the `קלע` skill must remain on
+   **patrol** each block. If every present marksman was picked for guard, the generator releases the
+   lowest-priority one (most accrued) back to patrol and pulls up the next-fairest non-marksman.
+   Best-effort — skipped only when no marksman is present or no non-marksman candidate exists.
 
-Fairness stats are always **rebuilt from published history** so manual edits are reflected correctly.
+Fairness stats are always **rebuilt from the immutable history base** so manual edits are reflected correctly.
 
 ---
 

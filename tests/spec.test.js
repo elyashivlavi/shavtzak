@@ -329,6 +329,24 @@ test('generateRange builds a block per day in [start..end]', () => {
   assert.throws(() => G.generateRange('2030-05-10', '2030-05-10', [], 'wrong'), 'requires admin');
 });
 
+// rule: at least one קלע (marksman) must be on patrol each block
+test('generateWeek keeps at least one קלע in patrol every block', () => {
+  reset();
+  const elig = G.readTable('soldiers').filter((s) => G.truthy_(s.active) && G.truthy_(s.guard_eligible));
+  const k1 = elig[0].id, k2 = elig[1].id;
+  G.updateSoldier(k1, { skills: ['קלע'] }, 'admin1234');
+  G.updateSoldier(k2, { skills: ['קלע'] }, 'admin1234');
+  G.generateWeek(7, 'admin1234');
+  const draft = G.readTable('schedule_draft');
+  const kala = new Set([k1, k2]);
+  const blocks = {};
+  draft.forEach((r) => { (blocks[r.block_date] = blocks[r.block_date] || { patrol: new Set() }); if (r.position === 'patrol') blocks[r.block_date].patrol.add(r.soldier_id); });
+  Object.keys(blocks).forEach((bd) => {
+    const hasKala = Array.from(blocks[bd].patrol).some((id) => kala.has(id));
+    assert(hasKala, 'block ' + bd + ' has no קלע in patrol');
+  });
+});
+
 // fairness: consecutive static (guard) days — should be 0 under the rest rule
 test('dutyFromRows_ reports consecutive guard days (0 when non-adjacent)', () => {
   reset();

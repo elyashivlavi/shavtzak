@@ -288,6 +288,24 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     }
     var chosen = pool.slice(0, guardCount);
 
+    // כלל: לפחות קלע אחד חייב להישאר בפטרול. אם כל הקלעים הנוכחיים נבחרו לעמדות,
+    // משחררים את הקלע בעל העדיפות-הנמוכה (שצבר הכי הרבה) ומכניסים במקומו את הלא-קלע ההוגן הבא.
+    var presentKala = present.filter(function (s) { return hasSkill_(s, 'קלע'); });
+    if (presentKala.length) {
+      var chosenIds = {};
+      chosen.forEach(function (c) { chosenIds[c.id] = 1; });
+      var kalaFreeInPatrol = presentKala.some(function (k) { return !chosenIds[k.id]; });
+      if (!kalaFreeInPatrol) {
+        var nextNonKala = pool.slice(guardCount).filter(function (s) { return !hasSkill_(s, 'קלע'); })[0];
+        if (nextNonKala) {
+          for (var jk = chosen.length - 1; jk >= 0; jk--) {
+            if (hasSkill_(chosen[jk], 'קלע')) { chosen.splice(jk, 1); break; }
+          }
+          chosen.push(nextNonKala);
+        }
+      }
+    }
+
     // סבב לילות: יעד ~25% לילות לכל שומר. ממיינים לפי יחס לילות-לימי-עמדה (הנמוך קודם),
     // כדי שהלילות יתחלקו יחסית למספר ימי-העמדה ולא רק במספר מוחלט.
     function nightRate_(id) { return (weekNight[id] || 0) / ((weekGuardDays[id] || 0) + 1); }
