@@ -35,6 +35,7 @@ the database. UI is Hebrew, RTL.
 - Everyone on guard is on **standby** for the full 24h (`standby=TRUE`). Other active soldiers are on **patrol**.
 - **Presence (in/out of base):** each soldier has `start_date`/`end_date` in the `soldiers` tab (**date+time**, stored as a real Date). Empty = always in base. Generation (`buildBlockRows_`/`generateWeek`) only places soldiers available at the block's start time (`soldierWindows_` + `availableAt_`, epoch comparison — timezone-safe).
 - **Weekly generation:** `generateWeek(days=7)` produces 7 draft blocks with running cumulative fairness (`advanceStats_`).
+- **`shift_date` column:** each schedule row stores `shift_date` = its real calendar date (`block_date` for היום/evening, `block_date+1` for after-midnight/morning — start hour < anchor). `block_date` stays the 12:00-anchor grouping key; `shift_date` disambiguates the DB so a `למחרת` row isn't misread as the anchor day. Set at generation via `shiftDate_`.
 - ⚠️ **Text storage:** schedule/config times & dates are stored as text (`writeTable` sets number format `@` for every tab except `soldiers`). Critical — otherwise Sheets converts "12:00" to a Date and corrupts it via the 1899 LMT offset (observed 12:00→09:39). The `soldiers` tab stays normal so start/end_date remain real dates.
 
 ## Fairness algorithm + placement rules (placement is done by Claude — keep everything here)

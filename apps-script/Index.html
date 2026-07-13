@@ -52,6 +52,8 @@
   .joinleave { display: flex; gap: 8px; flex-wrap: wrap; }
   .joinleave label { display: flex; flex-direction: column; gap: 2px; }
   .joinleave input { width: auto; font-size: 12px; padding: 4px 6px; }
+  .other-day td { color: #94a3b8; }            /* שעות יום למחרת — אפור קריא */
+  .other-day td:first-child { font-style: italic; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 12px; }
@@ -253,7 +255,7 @@ function viewPersonal() {
     return s != null && e != null && nowMin >= s && nowMin < e;
   });
   var onStandby = guards.some(function (x) { return truthy(x.it.standby); });
-  var statusTxt = onGuardNow ? '🟠 בשמירה' : (guards.length ? '🟢 לא בשמירה כרגע' : '⚪ בפטרול / בבסיס');
+  var statusTxt = onGuardNow ? '🟠 בשמירה' : (guards.length ? '🟢 לא בשמירה כרגע' : '🚶 פטרול');
   var rightPill = onStandby
     ? '<span class="pill standby">🔴 בכוננות 12:00–12:00</span>'
     : '<span class="pill count">' + esc(me ? roleName(me.role) : '') + '</span>';
@@ -381,7 +383,8 @@ function renderBoardBlock(block, prevBlock, editable) {
   var g = '<table><tr><th>יום</th><th>תאריך</th><th>שעות</th><th>חייל</th></tr>';
   seq.forEach(function (x) {
     var cell = editable ? boardEditSelect(x.blockDate, x.it.slot, x.it.soldier_id) : esc(x.it.soldier_name);
-    g += '<tr class="row-guard"><td>' + hebDay(x.date) + '</td><td class="kv">' + fmtDM(x.date) + '</td><td>' +
+    var other = x.date !== startDate ? ' other-day' : '';   // שעות של היום שלמחרת — גוון אפור
+    g += '<tr class="row-guard' + other + '"><td>' + hebDay(x.date) + '</td><td class="kv">' + fmtDM(x.date) + '</td><td>' +
          esc(x.it.start) + '–' + esc(x.it.end) + '</td><td>' + cell + '</td></tr>';
   });
   g += '</table>';

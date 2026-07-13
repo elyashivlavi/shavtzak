@@ -61,7 +61,8 @@ be compared chronologically.
 A flat list of rows; a "block" is all rows sharing a `block_date`.
 | Field | Type | Meaning |
 |-------|------|---------|
-| `block_date` | date-string `YYYY-MM-DD` | The 24-hour block this row belongs to. |
+| `block_date` | date-string `YYYY-MM-DD` | The 12:00-anchored 24-hour block this row belongs to (grouping/rotation key). |
+| `shift_date` | date-string `YYYY-MM-DD` | The **real calendar date** the shift occurs on = `block_date` for daytime/evening shifts, `block_date + 1` for after-midnight/morning shifts (start hour < anchor). Disambiguates the DB (a `למחרת` row's actual day). |
 | `position` | enum: `guard`,`patrol` | Kind of duty. |
 | `slot` | string | For guard: shift index `0..n-1`. For patrol: `morning`/`evening`. |
 | `start` | time-string `HH:MM` | Shift start (guard) or patrol time. |

@@ -16,7 +16,7 @@ var SHEET_CONFIG    = 'config';
 
 // ===== כותרות =====
 var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date'];
-var SCHEDULE_HEADERS = ['block_date', 'position', 'slot', 'start', 'end', 'day_label',
+var SCHEDULE_HEADERS = ['block_date', 'shift_date', 'position', 'slot', 'start', 'end', 'day_label',
                         'soldier_id', 'soldier_name', 'standby', 'note'];
 var STATS_HEADERS    = ['soldier_id', 'name', 'cumulative_guard_hours', 'guard_blocks', 'last_guard_block'];
 var CONFIG_HEADERS   = ['key', 'value'];
@@ -255,7 +255,7 @@ function generateWeek(days, pw) {
       var g = ordered[slot % guardCount];
       var start = starts[slot], end = starts[(slot + 1) % starts.length];
       rows.push({
-        block_date: bd, position: 'guard', slot: String(slot),
+        block_date: bd, shift_date: shiftDate_(bd, start, anchorHour), position: 'guard', slot: String(slot),
         start: start, end: end, day_label: parseHourNum_(start) < anchorHour ? 'למחרת' : 'היום',
         soldier_id: g.id, soldier_name: g.name, standby: 'TRUE', note: ''
       });
@@ -265,7 +265,7 @@ function generateWeek(days, pw) {
       var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
       patrol.forEach(function (s) {
         rows.push({
-          block_date: bd, position: 'patrol', slot: part, start: time, end: '',
+          block_date: bd, shift_date: shiftDate_(bd, time, anchorHour), position: 'patrol', slot: part, start: time, end: '',
           day_label: part === 'morning' ? 'בוקר' : 'ערב',
           soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
         });
@@ -323,7 +323,7 @@ function buildBlockRows_(blockDate, stats, forced, windows, cfg) {
     var start = starts[slot];
     var end = starts[(slot + 1) % shiftsPerDay];
     rows.push({
-      block_date: blockDate, position: 'guard', slot: String(slot),
+      block_date: blockDate, shift_date: shiftDate_(blockDate, start, anchorHour), position: 'guard', slot: String(slot),
       start: start, end: end, day_label: parseHourNum_(start) < anchorHour ? 'למחרת' : 'היום',
       soldier_id: guard.id, soldier_name: guard.name, standby: 'TRUE', note: ''
     });
@@ -333,7 +333,7 @@ function buildBlockRows_(blockDate, stats, forced, windows, cfg) {
     var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
     patrol.forEach(function (s) {
       rows.push({
-        block_date: blockDate, position: 'patrol', slot: part, start: time, end: '',
+        block_date: blockDate, shift_date: shiftDate_(blockDate, time, anchorHour), position: 'patrol', slot: part, start: time, end: '',
         day_label: part === 'morning' ? 'בוקר' : 'ערב',
         soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
       });
@@ -437,9 +437,10 @@ function editBoardAssignment(blockDate, slot, newSoldierId, pw) {
   var oldInPatrol = pub.some(function (r) { return r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === oldId; });
   if (oldId && oldId !== newSoldierId && !oldStillGuard && !oldInPatrol && soldiers[oldId] && truthy_(soldiers[oldId].active)) {
     ['morning', 'evening'].forEach(function (part) {
+      var ptime = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
       pub.push({
-        block_date: blockDate, position: 'patrol', slot: part,
-        start: part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening, end: '',
+        block_date: blockDate, shift_date: shiftDate_(blockDate, ptime, anchorHour), position: 'patrol', slot: part,
+        start: ptime, end: '',
         day_label: part === 'morning' ? 'בוקר' : 'ערב',
         soldier_id: oldId, soldier_name: soldiers[oldId].name, standby: '', note: ''
       });
@@ -570,7 +571,7 @@ function buildScheduleView_(rows) {
     if (!blocks[r.block_date]) { blocks[r.block_date] = { block_date: r.block_date, guard: [], patrol: [] }; order.push(r.block_date); }
     var item = {
       position: r.position, slot: r.slot, start: r.start, end: r.end,
-      day_label: r.day_label, soldier_id: r.soldier_id, soldier_name: r.soldier_name,
+      day_label: r.day_label, shift_date: r.shift_date, soldier_id: r.soldier_id, soldier_name: r.soldier_name,
       standby: truthy_(r.standby), note: r.note
     };
     if (r.position === 'guard') blocks[r.block_date].guard.push(item);
@@ -719,6 +720,11 @@ function shiftStarts_(cfg) {
 }
 
 function parseHourNum_(t) { var m = String(t).match(/^(\d{1,2})/); return m ? parseInt(m[1], 10) : 0; }
+
+/** התאריך היומני האמיתי של משמרת: שעת התחלה לפני שעת העיגון → יום למחרת. */
+function shiftDate_(blockDate, start, anchorHour) {
+  return parseHourNum_(start) < anchorHour ? advanceDate_(blockDate, 1) : blockDate;
+}
 
 /** משך משמרת בשעות מתוך "HH:MM"–"HH:MM" (עוטף חצות). */
 function shiftDurationHours_(start, end) {
@@ -906,7 +912,7 @@ function seedFirstBlock_() {
     var start = starts[slot];
     var end = starts[(slot + 1) % shiftsPerDay];
     rows.push({
-      block_date: blockDate, position: 'guard', slot: String(slot),
+      block_date: blockDate, shift_date: shiftDate_(blockDate, start, anchorHour), position: 'guard', slot: String(slot),
       start: start, end: end, day_label: parseHourNum_(start) < anchorHour ? 'למחרת' : 'היום',
       soldier_id: guard.id, soldier_name: guard.name, standby: 'TRUE', note: ''
     });
@@ -917,7 +923,7 @@ function seedFirstBlock_() {
     var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
     patrol.forEach(function (s) {
       rows.push({
-        block_date: blockDate, position: 'patrol', slot: part,
+        block_date: blockDate, shift_date: shiftDate_(blockDate, time, anchorHour), position: 'patrol', slot: part,
         start: time, end: '', day_label: part === 'morning' ? 'בוקר' : 'ערב',
         soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
       });

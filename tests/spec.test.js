@@ -325,6 +325,17 @@ test('generateWeek: no two consecutive guard-days per soldier', () => {
   });
 });
 
+// §3.2 shift_date = real calendar date of the shift
+test('shift_date resolves after-midnight shifts to block_date+1', () => {
+  reset();
+  G.readTable('schedule_published').concat(
+    (function () { G.generateWeek(7, 'admin1234'); return G.readTable('schedule_draft'); })()
+  ).forEach(function (r) {
+    var expected = G.parseHourNum_(r.start) < 12 ? G.advanceDate_(r.block_date, 1) : r.block_date;
+    assert.strictEqual(r.shift_date, expected, r.block_date + ' ' + r.start + ' → ' + r.shift_date);
+  });
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');
