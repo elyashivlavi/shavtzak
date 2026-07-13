@@ -350,16 +350,35 @@ function wireBoard() {
         function () { toast('עודכן ופורסם ✓'); reload(); });
     };
   });
+  Array.prototype.forEach.call(document.querySelectorAll('.oncall-edit'), function (sel) {
+    sel.onchange = function () {
+      callAdmin('swapGuardPerson', [sel.getAttribute('data-date'), sel.getAttribute('data-old'), sel.value],
+        function () { toast('הכוננות עודכנה ופורסמה ✓'); reload(); });
+    };
+  });
 }
 
 // רשימת השומרים בכוננות (standby) של בלוק — כל חייל פעם אחת
-function standbySet_(block) {
+function standbySet_(block) { return standbyPairs_(block).map(function (p) { return p.name; }); }
+function standbyPairs_(block) {
   if (!block) return [];
   var seen = {}, out = [];
   block.guard.forEach(function (it) {
-    if (truthy(it.standby) && !seen[it.soldier_id]) { seen[it.soldier_id] = 1; out.push(it.soldier_name); }
+    if (truthy(it.standby) && !seen[it.soldier_id]) { seen[it.soldier_id] = 1; out.push({ id: it.soldier_id, name: it.soldier_name }); }
   });
   return out;
+}
+// כרטיס כוננות: קריאה-בלבד (chips) או עריכה (dropdown להחלפת חייל-כוננות שלם בבלוק)
+function onCallHtml_(pairs, blockDate, editable) {
+  if (!pairs.length) return '<p class="muted">—</p>';
+  if (!editable) return chipsHtml_(pairs.map(function (p) { return p.name; }), 'guard');
+  var opts = function (cur) {
+    return (STATE.boot.soldiers || []).filter(function (s) { return s.active + '' !== 'FALSE' && s.active !== false; })
+      .map(function (s) { return '<option value="' + esc(s.id) + '"' + (s.id === cur ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('');
+  };
+  return '<div class="chips">' + pairs.map(function (p) {
+    return '<select class="oncall-edit" data-date="' + esc(blockDate) + '" data-old="' + esc(p.id) + '">' + opts(p.id) + '</select>';
+  }).join('') + '</div>';
 }
 
 function chipsHtml_(arr, cls) {
@@ -389,14 +408,14 @@ function renderBoardBlock(block, prevBlock, editable) {
   });
   g += '</table>';
 
-  // כוננות — שני סטים ביום: "עד 12:00" (בלוק קודם) ו"מ-12:00" (הבלוק הזה)
-  var setBefore = standbySet_(prevBlock);
-  var setAfter = standbySet_(block);
+  // כוננות — שני סטים ביום: "עד 12:00" (בלוק קודם) ו"מ-12:00" (הבלוק הזה). מנהל יכול להחליף חייל-כוננות שלם.
+  var beforePairs = standbyPairs_(prevBlock);
+  var afterPairs = standbyPairs_(block);
   var standbyHtml =
     '<div class="muted" style="margin-bottom:6px">עד 12:00</div>' +
-    (setBefore.length ? chipsHtml_(setBefore, 'guard') : '<p class="muted">— (אין בלוק קודם)</p>') +
+    (prevBlock ? onCallHtml_(beforePairs, prevBlock.block_date, editable) : '<p class="muted">— (אין בלוק קודם)</p>') +
     '<div class="muted" style="margin:14px 0 6px">מ-12:00</div>' +
-    chipsHtml_(setAfter, 'guard');
+    onCallHtml_(afterPairs, block.block_date, editable);
 
   // פטרול — רשימה מאוחדת (בלי הפרדת בוקר/ערב), כל חייל פעם אחת
   var pSeen = {}, patrol = [];

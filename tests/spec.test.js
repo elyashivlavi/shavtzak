@@ -336,6 +336,20 @@ test('shift_date resolves after-midnight shifts to block_date+1', () => {
   });
 });
 
+// §7.2 on-call swap: replace a whole guard/standby person across the block
+test('swapGuardPerson replaces a guard across all their block shifts', () => {
+  reset();
+  const pub = G.readTable('schedule_published');
+  const bd = pub.find((r) => r.position === 'guard').block_date;
+  const oldId = pub.find((r) => r.block_date === bd && r.position === 'guard').soldier_id;
+  const patrol = pub.find((r) => r.block_date === bd && r.position === 'patrol' && r.soldier_id !== oldId);
+  G.swapGuardPerson(bd, oldId, patrol.soldier_id, 'admin1234');
+  const after = G.readTable('schedule_published');
+  assert(!after.some((r) => r.block_date === bd && r.position === 'guard' && r.soldier_id === oldId), 'old still on guard');
+  assert(after.filter((r) => r.block_date === bd && r.position === 'guard' && r.soldier_id === patrol.soldier_id).length >= 2, 'new should take both shifts');
+  assert.throws(() => G.swapGuardPerson(bd, oldId, patrol.soldier_id, 'wrong'));
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');

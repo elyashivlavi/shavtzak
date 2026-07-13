@@ -456,6 +456,48 @@ function editBoardAssignment(blockDate, slot, newSoldierId, pw) {
   return { ok: true };
 }
 
+/**
+ * מחליף חייל-כוננות שלם (על כל משמרות השמירה שלו בבלוק) בלוח המפורסם.
+ * כוננות = השומרים, לכן החלפה זו מעדכנת את סט הכוננות. שומר על אי-כפילות ועקביות פטרול.
+ */
+function swapGuardPerson(blockDate, oldSoldierId, newSoldierId, pw) {
+  requireAdmin_(pw);
+  if (oldSoldierId === newSoldierId) return { ok: true };
+  var cfg = getConfigAll(), anchorHour = parseInt(cfg.anchor_hour, 10);
+  var pub = readTable(SHEET_PUBLISHED);
+  var soldiers = soldiersMap_();
+  var target = soldiers[newSoldierId];
+  if (!target) throw new Error('חייל לא נמצא.');
+
+  var found = false;
+  pub.forEach(function (r) {
+    if (r.block_date === blockDate && r.position === 'guard' && r.soldier_id === oldSoldierId) {
+      r.soldier_id = newSoldierId; r.soldier_name = target.name; found = true;
+    }
+  });
+  if (!found) throw new Error('החייל אינו בעמדות הבלוק.');
+
+  pub = pub.filter(function (r) { return !(r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === newSoldierId); });
+  var oldGuard = pub.some(function (r) { return r.block_date === blockDate && r.position === 'guard' && r.soldier_id === oldSoldierId; });
+  var oldPatrol = pub.some(function (r) { return r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === oldSoldierId; });
+  if (!oldGuard && !oldPatrol && soldiers[oldSoldierId] && truthy_(soldiers[oldSoldierId].active)) {
+    ['morning', 'evening'].forEach(function (part) {
+      var ptime = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
+      pub.push({
+        block_date: blockDate, shift_date: shiftDate_(blockDate, ptime, anchorHour), position: 'patrol', slot: part,
+        start: ptime, end: '', day_label: part === 'morning' ? 'בוקר' : 'ערב',
+        soldier_id: oldSoldierId, soldier_name: soldiers[oldSoldierId].name, standby: '', note: ''
+      });
+    });
+  }
+  var conflict = findDoubleBooking_(pub.filter(function (r) { return r.block_date === blockDate; }), anchorHour);
+  if (conflict) throw new Error('התנגשות: ' + conflict + ' משובץ פעמיים באותו זמן.');
+  pub.sort(scheduleSort_);
+  writeTable(SHEET_PUBLISHED, pub);
+  recomputeStats_();
+  return { ok: true };
+}
+
 /** דקות מוחלטות מתחילת הבלוק (שעת העיגון). */
 function toAbsMin_(hhmm, anchorHour) {
   var h = parseHourNum_(hhmm);
