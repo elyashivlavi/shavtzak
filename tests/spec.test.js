@@ -49,6 +49,7 @@ function makeSpreadsheet() {
         return range(name, 1, 1, nR, nC);
       },
       getRange(r, c, nr, nc) { return range(name, r, c, nr || 1, nc || 1); },
+      getLastRow() { return (store[name] || []).length; },
       clearContents() { store[name] = []; return this; },
       setFrozenRows() { return this; },
     };
@@ -278,6 +279,54 @@ test('skills: updateSoldier normalizes + persists, hasSkill_ queries', () => {
   const r = G.addSoldier('לוחם חדש', '', 'soldier', true, '', ['רחפן'], 'admin1234');
   const n = G.readTable('soldiers').find((x) => x.id === r.id);
   assert.strictEqual(n.skills, 'רחפן');
+});
+
+// schedule_past — immutable append-only archive + fairness base
+test('archivePast_ appends elapsed blocks once, immutable, feeds fairness base', () => {
+  reset();
+  const sid = G.readTable('soldiers')[0].id;
+  const grow = (slot, start, end, dl) => ({
+    block_date: '2020-01-01', shift_date: '2020-01-01', position: 'guard', slot: String(slot),
+    start, end, day_label: dl, soldier_id: sid, soldier_name: 'X', standby: 'TRUE', note: '',
+  });
+  G.writeTable('schedule_published', [grow(0, '12:00', '15:00', 'היום'), grow(4, '00:00', '03:00', 'למחרת')]);
+  G.archivePast_();
+  assert.strictEqual(G.readTable('schedule_past').length, 2, 'elapsed block archived');
+  G.archivePast_();
+  assert.strictEqual(G.readTable('schedule_past').length, 2, 'idempotent — no duplicates');
+  // immutable: wiping published leaves the archive untouched
+  G.writeTable('schedule_published', []);
+  assert.strictEqual(G.readTable('schedule_past').length, 2, 'archive survives published change');
+  // fairness base still counts archived rows though published is empty
+  const base = G.fairnessBaseRows_();
+  assert.strictEqual(base.filter((r) => r.block_date === '2020-01-01').length, 2);
+  const st = G.statsFromRows_(base).find((s) => s.soldier_id === sid);
+  assert(st.cumulative_guard_hours >= 6, 'archived hours counted in stats');
+});
+
+test('editing an elapsed (archived) block is rejected', () => {
+  reset();
+  const sid = G.readTable('soldiers')[0].id;
+  G.writeTable('schedule_published', [{
+    block_date: '2020-01-01', shift_date: '2020-01-01', position: 'guard', slot: '0',
+    start: '12:00', end: '15:00', day_label: 'היום', soldier_id: sid, soldier_name: 'X', standby: 'TRUE', note: '',
+  }]);
+  const sid2 = G.readTable('soldiers')[1].id;
+  assert.throws(() => G.editBoardAssignment('2020-01-01', '0', sid2, 'admin1234'), /הסתיים/);
+  assert.throws(() => G.swapGuardPerson('2020-01-01', sid, sid2, 'admin1234'), /הסתיים/);
+});
+
+// draft a custom full-date range (default tomorrow), re-plannable
+test('generateRange builds a block per day in [start..end]', () => {
+  reset();
+  const r = G.generateRange('2030-05-10', '2030-05-12', [], 'admin1234');
+  assert.strictEqual(r.days, 3);
+  const dates = Array.from(new Set(G.readTable('schedule_draft').map((x) => x.block_date))).sort();
+  assert.strictEqual(dates.join(','), '2030-05-10,2030-05-11,2030-05-12');
+  // empty end defaults to start (single day)
+  assert.strictEqual(G.generateRange('2030-06-01', '', [], 'admin1234').days, 1);
+  assert.throws(() => G.generateRange('2030-05-12', '2030-05-10', [], 'admin1234'), /מוקדם/);
+  assert.throws(() => G.generateRange('2030-05-10', '2030-05-10', [], 'wrong'), 'requires admin');
 });
 
 // §1/§7.2 no double-booking detection

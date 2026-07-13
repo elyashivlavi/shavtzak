@@ -11,6 +11,7 @@
 var SHEET_SOLDIERS  = 'soldiers';
 var SHEET_DRAFT     = 'schedule_draft';
 var SHEET_PUBLISHED = 'schedule_published';
+var SHEET_PAST      = 'schedule_past';   // ארכיון בלוקים שהסתיימו — לקריאה בלבד, אף פעם לא נערך, רק מוסיפים (append)
 var SHEET_STATS     = 'stats';
 var SHEET_CONFIG    = 'config';
 
@@ -163,14 +164,14 @@ function getBootstrap(pw) {
     roster: roster
   };
   if (ctx.isAdmin) {
-    var pub = readTable(SHEET_PUBLISHED);
+    var base = fairnessBaseRows_();               // ארכיון קבוע + מפורסם (דדופ) — הבסיס להוגנות
     var draftRows = readTable(SHEET_DRAFT);
-    var withDraft = pub.concat(draftRows);
+    var withDraft = base.concat(draftRows);
     out.soldiers = readTable(SHEET_SOLDIERS);
     out.draft = buildScheduleView_(draftRows);
-    out.stats = statsFromRows_(pub);
+    out.stats = statsFromRows_(base);
     out.statsDraft = statsFromRows_(withDraft);   // כולל טיוטה
-    out.duty = dutyFromRows_(pub);
+    out.duty = dutyFromRows_(base);
     out.dutyDraft = dutyFromRows_(withDraft);
   }
   return out;
@@ -182,6 +183,7 @@ function getBootstrap(pw) {
  */
 function generateNextRotation(forcePatrolIds, pw) {
   requireAdmin_(pw);
+  archivePast_();
   var cfg = getConfigAll();
   var forced = {};
   (forcePatrolIds || []).forEach(function (id) { forced[id] = true; });
@@ -201,11 +203,43 @@ function generateNextRotation(forcePatrolIds, pw) {
  */
 function generateWeek(days, pw) {
   requireAdmin_(pw);
-  var cfg = getConfigAll();
+  archivePast_();
   var n = parseInt(days, 10) || 7;
+  var res = buildDraftRange_(nextBlockDate_(), n, {}, getConfigAll());
+  writeTable(SHEET_DRAFT, res.rows);
+  return { ok: true, days: n, summary: res.summary };
+}
+
+/**
+ * מייצר טיוטה לטווח תאריכים מלאים [startDate..endDate] (כולל), לפי אותם כללי הוגנות.
+ * מאפשר לתכנן מחדש תאריך שכבר תוכנן/פורסם. forcePatrolIds חלים על הבלוק הראשון בטווח.
+ */
+function generateRange(startDate, endDate, forcePatrolIds, pw) {
+  requireAdmin_(pw);
+  archivePast_();
+  var start = normDate_(startDate);
+  if (!start) throw new Error('תאריך התחלה לא תקין.');
+  var end = normDate_(endDate) || start;
+  if (end < start) throw new Error('תאריך הסיום מוקדם מתאריך ההתחלה.');
+  var n = daysBetween_(start, end) + 1;
+  if (n > 31) throw new Error('טווח ארוך מדי (עד 31 יום).');
+  var forced = {};
+  (forcePatrolIds || []).forEach(function (id) { forced[id] = true; });
+  var res = buildDraftRange_(start, n, forced, getConfigAll());
+  writeTable(SHEET_DRAFT, res.rows);
+  return { ok: true, startDate: start, endDate: end, days: n, summary: res.summary };
+}
+
+/**
+ * ליבת ההפקה: בונה n בלוקי טיוטה החל מ-startDate לפי כללי ההוגנות (איזון עמדה/פטרול,
+ * הוגנות היסטורית, סבב לילות 00:00–06:00, נוכחות/החרגות, כלל מנוחה). forced = מזהי
+ * חייבי-פטרול לבלוק הראשון (לא יעלו לעמדות). מחזיר { rows, summary } — לא כותב.
+ */
+function buildDraftRange_(startDate, n, forced, cfg) {
   var guardCount = parseInt(cfg.guard_count, 10);
   var anchorHour = parseInt(cfg.anchor_hour, 10);
   var starts = shiftStarts_(cfg);
+  forced = forced || {};
 
   // אילו עמדות (positions) נושאות משמרת לילה (שעת תחילה 00:00–06:00)
   var nightPos = {};
@@ -217,13 +251,13 @@ function generateWeek(days, pw) {
   }
 
   var stats = statsMap_(), windows = soldierWindows_();
-  var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך השבוע (איזון + סבב לילות)
+  var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך הטווח (איזון + סבב לילות)
   var guardedPrev = {};                      // מי שמר בבלוק הקודם (כלל מנוחה: אין יומיים עמדה רצופים)
-  var rows = [], summary = [], bd = nextBlockDate_();
-  // מאתחלים לפי הבלוק המפורסם האחרון שלפני תחילת השבוע, כדי שהיום הראשון יכבד את כלל המנוחה
-  var prevPublished = advanceDate_(bd, -1);
-  readTable(SHEET_PUBLISHED).forEach(function (r) {
-    if (r.block_date === prevPublished && r.position === 'guard') guardedPrev[r.soldier_id] = 1;
+  var rows = [], summary = [], bd = startDate;
+  // מאתחלים לפי הבלוק שלפני תחילת הטווח (מהבסיס: ארכיון+מפורסם), כדי שהיום הראשון יכבד את כלל המנוחה
+  var prevDay = advanceDate_(bd, -1);
+  fairnessBaseRows_().forEach(function (r) {
+    if (r.block_date === prevDay && r.position === 'guard') guardedPrev[r.soldier_id] = 1;
   });
 
   for (var i = 0; i < n; i++) {
@@ -232,6 +266,7 @@ function generateWeek(days, pw) {
       return truthy_(s.active) && availableAt_(windows[s.id], instant);
     });
     var pool = present.filter(function (s) { return truthy_(s.guard_eligible); });
+    if (i === 0) pool = pool.filter(function (s) { return !forced[s.id]; });   // חייבי-פטרול בבלוק הראשון
     // איזון קודם (הכי מעט ימי-עמדה השבוע), ואז הוגנות היסטורית
     pool.sort(function (a, b) {
       var ga = weekGuardDays[a.id] || 0, gb = weekGuardDays[b.id] || 0;
@@ -296,8 +331,7 @@ function generateWeek(days, pw) {
     summary.push({ date: bd, guards: ordered.map(function (g) { return g.name; }) });
     bd = advanceDate_(bd, 1);
   }
-  writeTable(SHEET_DRAFT, rows);
-  return { ok: true, days: n, summary: summary };
+  return { rows: rows, summary: summary };
 }
 
 /**
@@ -380,6 +414,7 @@ function advanceDate_(dateStr, n) {
 /** אישור ופרסום: מעתיק את הטיוטה ל"מפורסם" ומעדכן את צבירת השעות. רק אחרי זה החיילים רואים. */
 function publishDraft(pw) {
   requireAdmin_(pw);
+  archivePast_();   // משמרים את המצב שהסתיים לפני המיזוג — כדי שהארכיון ישקף מה שבוצע בפועל
   var draft = readTable(SHEET_DRAFT);
   if (!draft.length) throw new Error('אין טיוטה לפרסום. צור שיבוץ קודם.');
 
@@ -433,6 +468,7 @@ function editBoardAssignment(blockDate, slot, newSoldierId, pw) {
   requireAdmin_(pw);
   var cfg = getConfigAll();
   var anchorHour = parseInt(cfg.anchor_hour, 10);
+  if (blockElapsed_(blockDate, anchorHour, Date.now())) throw new Error('הבלוק כבר הסתיים ונשמר בהיסטוריה — לא ניתן לשנותו.');
   var pub = readTable(SHEET_PUBLISHED);
   var soldiers = soldiersMap_();
   var target = soldiers[newSoldierId];
@@ -481,6 +517,7 @@ function swapGuardPerson(blockDate, oldSoldierId, newSoldierId, pw) {
   requireAdmin_(pw);
   if (oldSoldierId === newSoldierId) return { ok: true };
   var cfg = getConfigAll(), anchorHour = parseInt(cfg.anchor_hour, 10);
+  if (blockElapsed_(blockDate, anchorHour, Date.now())) throw new Error('הבלוק כבר הסתיים ונשמר בהיסטוריה — לא ניתן לשנותו.');
   var pub = readTable(SHEET_PUBLISHED);
   var soldiers = soldiersMap_();
   var target = soldiers[newSoldierId];
@@ -610,7 +647,70 @@ function statsFromRows_(rows) {
   });
 }
 
-function recomputeStats_() { writeTable(SHEET_STATS, statsFromRows_(readTable(SHEET_PUBLISHED))); }
+// ================================================================
+//  ארכיון היסטורי (schedule_past) — בסיס בלתי-משתנה לחישוב הוגנות
+// ================================================================
+
+/** מפתח ייחודי לשורת שיבוץ (למניעת כפילויות בעת append לארכיון) */
+function scheduleKey_(r) {
+  return [r.block_date, r.position, r.slot, r.start, r.soldier_id].join('|');
+}
+
+/** האם בלוק (24ש' מהעיגון) כבר הסתיים במלואו? (חצות הבלוק → חצות למחרת, כלומר עד 12:00 של היום הבא) */
+function blockElapsed_(blockDate, anchorHour, nowMs) {
+  return nowMs >= blockStartInstant_(advanceDate_(blockDate, 1), anchorHour);
+}
+
+/**
+ * מוסיף (append בלבד) לארכיון schedule_past את שורות הבלוקים המפורסמים שכבר הסתיימו
+ * ושעדיין לא בארכיון. אף פעם לא משנה/מוחק שורות קיימות — הארכיון בלתי-משתנה.
+ * אידמפוטנטי (דדופ לפי scheduleKey_).
+ */
+function archivePast_() {
+  var pub = readTable(SHEET_PUBLISHED);
+  if (!pub.length) return;
+  var anchorHour = parseInt(getConfig('anchor_hour'), 10) || 12;
+  var now = Date.now();
+  var have = {};
+  readTable(SHEET_PAST).forEach(function (r) { have[scheduleKey_(r)] = 1; });
+  var toAdd = pub.filter(function (r) {
+    return blockElapsed_(r.block_date, anchorHour, now) && !have[scheduleKey_(r)];
+  });
+  if (toAdd.length) appendRows_(SHEET_PAST, toAdd);
+}
+
+/** מוסיף שורות בסוף גיליון בלי לגעת בקיימות (שמירת טקסט '@' כמו שאר גיליונות השיבוץ). */
+function appendRows_(sheetName, rows) {
+  var sheet = ss_().getSheetByName(sheetName);
+  if (!sheet) sheet = ss_().insertSheet(sheetName);
+  var headers = headersFor_(sheetName);
+  var startRow;
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    startRow = 2;
+  } else {
+    startRow = sheet.getLastRow() + 1;
+  }
+  var out = rows.map(function (r) { return headers.map(function (h) { return r[h] !== undefined ? r[h] : ''; }); });
+  var range = sheet.getRange(startRow, 1, out.length, headers.length);
+  range.setNumberFormat('@');
+  range.setValues(out);
+}
+
+/**
+ * הבסיס לחישוב הוגנות: הארכיון הבלתי-משתנה (past) יחד עם המפורסם הנוכחי (published),
+ * מאוחד ומדודפ לפי scheduleKey_ (past גובר). כך היסטוריה שהסתיימה נספרת מהארכיון הקבוע,
+ * ובלוקים עתידיים שעדיין לא הסתיימו נספרים מהמפורסם — בלי כפילות.
+ */
+function fairnessBaseRows_() {
+  var seen = {}, out = [];
+  readTable(SHEET_PAST).forEach(function (r) { var k = scheduleKey_(r); if (!seen[k]) { seen[k] = 1; out.push(r); } });
+  readTable(SHEET_PUBLISHED).forEach(function (r) { var k = scheduleKey_(r); if (!seen[k]) { seen[k] = 1; out.push(r); } });
+  return out;
+}
+
+function recomputeStats_() { archivePast_(); writeTable(SHEET_STATS, statsFromRows_(fairnessBaseRows_())); }
 
 function statsMap_() {
   var m = {};
@@ -759,6 +859,17 @@ function parseDate_(ymd) {
   return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
 }
 
+/** מנרמל קלט תאריך ל-YYYY-MM-DD (תאריך מלא בלבד) או '' אם לא תקין */
+function normDate_(s) {
+  var m = String(s || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[0] : '';
+}
+
+/** מספר הימים בין שני תאריכי YYYY-MM-DD (end - start), חסין לאזור-זמן (חצות מקומי) */
+function daysBetween_(start, end) {
+  return Math.round((parseDate_(end).getTime() - parseDate_(start).getTime()) / 86400000);
+}
+
 function fmtDate_(d) {
   return Utilities.formatDate(d, ss_().getSpreadsheetTimeZone() || 'Asia/Jerusalem', 'yyyy-MM-dd');
 }
@@ -798,7 +909,7 @@ function shiftDurationHours_(start, end) {
  * עמדה = סכום שעות משמרות השמירה; כוננות = מספר ימי-שמירה × 24 (בכוננות לכל הבלוק);
  * פטרול = מספר שיבוצי פטרול.
  */
-function dutyBreakdown_() { return dutyFromRows_(readTable(SHEET_PUBLISHED)); }
+function dutyBreakdown_() { return dutyFromRows_(fairnessBaseRows_()); }
 
 /** פירוק עומסים מתוך שורות שיבוץ נתונות (טהור). */
 function dutyFromRows_(pub) {
@@ -876,6 +987,7 @@ function setup() {
   ensureSheet_(ss, SHEET_SOLDIERS,  SOLDIER_HEADERS);
   ensureSheet_(ss, SHEET_DRAFT,     SCHEDULE_HEADERS);
   ensureSheet_(ss, SHEET_PUBLISHED, SCHEDULE_HEADERS);
+  ensureSheet_(ss, SHEET_PAST,      SCHEDULE_HEADERS);
   ensureSheet_(ss, SHEET_STATS,     STATS_HEADERS);
   ensureSheet_(ss, SHEET_CONFIG,    CONFIG_HEADERS);
 
@@ -997,7 +1109,9 @@ function seedFirstBlock_() {
 /** מוודא שהמערכת מותקנת לפני שהממשק עולה */
 function ensureReady_() {
   if (!ss_().getSheetByName(SHEET_SOLDIERS)) { setup(); return; }
-  migrateColumns_(SHEET_SOLDIERS);  // מוסיף עמודות חדשות (phone/start_date/end_date) לגיליון קיים
+  migrateColumns_(SHEET_SOLDIERS);  // מוסיף עמודות חדשות (phone/start_date/end_date/skills) לגיליון קיים
+  if (!ss_().getSheetByName(SHEET_PAST)) ensureSheet_(ss_(), SHEET_PAST, SCHEDULE_HEADERS);
+  archivePast_();  // מעביר בלוקים שהסתיימו לארכיון הבלתי-משתנה (אידמפוטנטי)
 }
 
 /** מוודא שכותרות הגיליון כוללות את כל העמודות המוגדרות בקוד; אם לא — משכתב פעם אחת (ערכים חסרים = ריק). */

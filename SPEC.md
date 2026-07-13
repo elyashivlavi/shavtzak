@@ -58,8 +58,8 @@ be compared chronologically.
 | `end_date` | datetime (optional) | End of the presence window. Empty start+end = **always present**. |
 | `skills` | comma-separated set from `{קלע, רחפן}` (optional) | **Multi-value capability tags**, orthogonal to `role` — a soldier may hold both, and any rank. Used to apply scheduling rules to marksmen (קלע) / drone operators (רחפן). Edited via the admin "חיילים" tab (checkboxes). Not shown in the public UI. |
 
-### 3.2 Schedule entry (used for both `draft` and `published`)
-A flat list of rows; a "block" is all rows sharing a `block_date`.
+### 3.2 Schedule entry (used for `draft`, `published`, and `past`)
+A flat list of rows; a "block" is all rows sharing a `block_date`. The same shape backs three stores: `schedule_draft` (admin-private edit buffer), `schedule_published` (soldier-visible), and **`schedule_past`** — an **immutable, append-only** archive of blocks that have already fully elapsed. `schedule_past` is never edited or overwritten, only appended to; it is the frozen ground-truth base for fairness so history can't be altered by later edits or regeneration.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `block_date` | date-string `YYYY-MM-DD` | The 12:00-anchored 24-hour block this row belongs to (grouping/rotation key). |
@@ -75,7 +75,7 @@ A flat list of rows; a "block" is all rows sharing a `block_date`.
 | `note` | string (optional) | Free note. |
 
 ### 3.3 Fairness stats (derived, rebuildable)
-One row per soldier, **recomputed from the full published history** on every publish (idempotent).
+One row per soldier, **recomputed from the fairness base** on every publish/edit (idempotent). The fairness base = `schedule_past` (immutable, completed blocks) ∪ `schedule_published`, deduped per shift (past wins). A block is archived to `schedule_past` once it has fully elapsed (now past `block_date + 1` at the anchor hour); archiving is automatic, idempotent, and runs on load and before every generate/publish. Consequently: elapsed shifts count from the frozen archive even if `published` is later edited or regenerated, upcoming published shifts still count for planning, and no shift is double-counted. **Editing a block that has already elapsed is rejected** (board swap / on-call swap) — the past cannot change.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `soldier_id` | string | |
@@ -170,7 +170,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 - **Loading indicator:** any server round-trip that refreshes data (entering admin mode, editing a shift, publishing, generating, etc.) shows a spinner overlay until it completes.
 
 ### 7.3 Admin-only tabs (behind password)
-- **"טיוטה" (Draft):** generate next block, **generate week (7 days)**, optionally mark "must-patrol" soldiers for the next block, edit any guard slot inline, then **Approve & Publish** or **Discard**. A banner reminds that the draft is not visible to soldiers.
+- **"טיוטה" (Draft):** generate a draft for a **chosen full-date range** — pick a start and end date (whole dates only, **default both = tomorrow**); a single day generates one block, a wider range one block per day. The range **may cover dates that were already planned/published** (re-plan). Optionally mark "must-patrol" soldiers (applied to the **first** day of the range), edit any guard slot inline, then **Approve & Publish** (merges into published, replacing same-date blocks) or **Discard**. A banner reminds that the draft is not visible to soldiers.
 - **"חיילים" (Soldiers):** add a soldier (name, phone, email, role, guard-eligible, **skills** קלע/רחפן); list all with a private-note indicator; **toggle each soldier's skills** (קלע/רחפן checkboxes) inline; **set each soldier's join/leave presence window** (`start_date`/`end_date`, date+time) inline — outside the window the soldier isn't scheduled; empty both = permanently in base; remove (soft-delete → inactive, history kept).
 - **"הוגנות" (Fairness):** (a) cumulative guard hours per soldier, sorted ascending, so the admin sees who's next; (b) a **load table** per soldier of **guard (static) hours** + **standby hours** (guard-days × 24) vs **patrol shift count (morning/evening)** — patrol is **never shown as hours** (patrol hours are not meaningful; count morning/evening shifts instead). (c) a **day/night card** — per soldier, count of **day** vs **night** shifts (night = a shift starting 00:00–06:00) and the **night %**, with a target of **~25%** for everyone who does guard duty (flag deviations beyond ±15 points). A **"include draft" toggle (default on)** recomputes all three tables over published **+ the unpublished draft** (projected view) vs published-only.
 

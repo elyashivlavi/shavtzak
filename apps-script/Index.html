@@ -487,23 +487,27 @@ function viewDraft() {
     return (s.active + '' !== 'FALSE' && s.active !== false) &&
            (s.guard_eligible + '' !== 'FALSE' && s.guard_eligible !== false);
   });
-  var forceBox = '<details style="margin:8px 0"><summary class="muted" style="cursor:pointer">חייבים בפטרול בבלוק הבא (לא יעלו לעמדות)</summary>' +
+  var forceBox = '<details style="margin:8px 0"><summary class="muted" style="cursor:pointer">חייבים בפטרול ביום הראשון (לא יעלו לעמדות)</summary>' +
     '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">' +
     eligible.map(function (s) {
       return '<label class="muted"><input type="checkbox" class="force-patrol" value="' + esc(s.id) + '" style="width:auto"> ' + esc(s.name) + '</label>';
     }).join('') + '</div></details>';
 
+  var tom = addDays(todayStr(), 1);   // ברירת מחדל: מחר
   var head = '<div class="card"><h2>ניהול טיוטה</h2>' +
     '<p class="muted">הטיוטה נראית רק לך. החיילים ימשיכו לראות את השיבוץ הקודם עד שתלחץ "אישור ופרסום".</p>' +
     forceBox +
-    '<div class="btn-row">' +
-    '<button id="btn-generate">ייצר שיבוץ הבא (24ש\')</button>' +
-    '<button id="btn-generate-week" class="secondary">ייצר שבוע (7 ימים)</button>' +
-    (b.hasDraft ? '<button id="btn-publish">✓ אישור ופרסום</button>' +
-                  '<button class="danger" id="btn-discard">בטל טיוטה</button>' : '') +
-    '</div></div>';
+    '<div class="daterange" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:10px 0">' +
+      '<label class="kv">מתאריך<input type="date" id="gen-start" value="' + tom + '"></label>' +
+      '<label class="kv">עד תאריך<input type="date" id="gen-end" value="' + tom + '"></label>' +
+      '<button id="btn-generate">ייצר טיוטה</button>' +
+    '</div>' +
+    '<p class="muted" style="font-size:12px">טווח ימים מלאים (ברירת מחדל: מחר). אפשר לתכנן מחדש תאריך שכבר תוכנן. "חייבים בפטרול" חלים על היום הראשון בטווח.</p>' +
+    (b.hasDraft ? '<div class="btn-row"><button id="btn-publish">✓ אישור ופרסום</button>' +
+                  '<button class="danger" id="btn-discard">בטל טיוטה</button></div>' : '') +
+    '</div>';
 
-  if (!b.hasDraft) return head + '<div class="card"><p class="muted">אין טיוטה פעילה. לחץ "ייצר שיבוץ הבא" כדי ליצור את הבלוק הבא לפי הוגנות, או ערוך ופרסם.</p></div>';
+  if (!b.hasDraft) return head + '<div class="card"><p class="muted">אין טיוטה פעילה. בחר טווח תאריכים ולחץ "ייצר טיוטה" כדי לייצר שיבוץ לפי הוגנות, או ערוך ופרסם.</p></div>';
 
   var banner = '<div class="banner">⚠️ טיוטה לא מפורסמת — שינויים כאן אינם גלויים לחיילים. ניתן לערוך כל משמרת שמירה ואז לאשר.</div>';
   var blocks = b.draft.map(function (block) { return renderBlock(block, '', true); }).join('');
@@ -513,18 +517,15 @@ function viewDraft() {
 function wireDraft() {
   var g = document.getElementById('btn-generate');
   if (g) g.onclick = function () {
+    var start = document.getElementById('gen-start').value;
+    var end = document.getElementById('gen-end').value;
+    if (!start) { toast('בחר תאריך התחלה', true); return; }
+    if (end && end < start) { toast('תאריך הסיום מוקדם מההתחלה', true); return; }
     var forced = Array.prototype.map.call(document.querySelectorAll('.force-patrol:checked'),
       function (el) { return el.value; });
     g.disabled = true;
-    callAdmin('generateNextRotation', [forced], function (res) {
-      toast('נוצרה טיוטה לתאריך ' + res.blockDate); reload();
-    });
-  };
-  var gw = document.getElementById('btn-generate-week');
-  if (gw) gw.onclick = function () {
-    gw.disabled = true;
-    callAdmin('generateWeek', [7], function (res) {
-      toast('נוצרה טיוטה ל-' + res.days + ' ימים'); reload();
+    callAdmin('generateRange', [start, end || start, forced], function (res) {
+      toast('נוצרה טיוטה ל-' + res.days + ' ימים (' + res.startDate + '…' + res.endDate + ')'); reload();
     });
   };
   var p = document.getElementById('btn-publish');

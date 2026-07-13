@@ -26,6 +26,7 @@ the database. UI is Hebrew, RTL.
 | `soldiers` | id, name, email, role, active, guard_eligible, phone, internal_note, start_date, end_date, skills |
 | `schedule_draft` | schedule being edited (admin-private) |
 | `schedule_published` | schedule visible to soldiers |
+| `schedule_past` | **immutable append-only** archive of completed blocks — the fairness base. Never edited/overwritten, only appended (`appendRows_`). |
 | `stats` | soldier_id, name, cumulative_guard_hours, guard_blocks, last_guard_block |
 | `config` | anchor_hour, shift_hours, shift_starts, guard_count, patrol_morning/evening, admin_emails, admin_password |
 
@@ -46,7 +47,9 @@ The user wants placements done through Claude. On every roster generation, Claud
 4. **Hard exclusions:** `guard_eligible=FALSE` → never on positions (אסי פרץ). `active=FALSE` → never scheduled.
 5. **Forced patrol:** `forcePatrolIds` — marked soldiers don't go on positions this block (they don't accrue hours → fairness raises them sooner as compensation).
 6. **Rest day (implemented in `generateWeek` via `guardedPrev`):** after a guard-day (24h static) a soldier gets **at least one patrol day** before guarding again — never two consecutive guard-days. Falls back only if too few soldiers are otherwise available.
-- Stats are rebuilt (`recomputeStats_` → `statsFromRows_`) from all published history on every publish — idempotent. `dutyFromRows_` produces the load + day/night breakdown. Both stats and duty have published-only and published+draft variants (the הוגנות "include draft" toggle, default on).
+- **Fairness base (immutable history):** completed blocks are archived to `schedule_past` (`archivePast_`, append-only, idempotent, dedup by `scheduleKey_`) — a block is "done" when `blockElapsed_` (past `block_date+1` at the anchor hour). The fairness base = `fairnessBaseRows_()` = `schedule_past` ∪ `schedule_published`, deduped (past wins). So elapsed shifts count from the frozen archive even if published is later edited/regenerated; upcoming published shifts still count for planning; no double-count. `archivePast_` runs on every load (`ensureReady_`) and before every generate/publish. **Editing an elapsed block is rejected** (`editBoardAssignment`/`swapGuardPerson` guard on `blockElapsed_`) — the past can't change.
+- **Draft generation:** `generateRange(startDate, endDate, forcePatrolIds, pw)` builds a draft block per full date in `[start..end]` (re-plannable, default UI = tomorrow), via the shared core `buildDraftRange_`. `generateWeek(days)` (7-day from `nextBlockDate_`) and `generateNextRotation` remain. `forcePatrolIds` apply to the **first** block of the range.
+- Stats are rebuilt (`recomputeStats_` → `statsFromRows_` over the **fairness base**) on every publish/edit — idempotent. `dutyFromRows_` produces the load + day/night breakdown. Both stats and duty have published-only and published+draft variants (the הוגנות "include draft" toggle, default on).
 - Rules 1–3 are **implemented in `generateWeek`** (balance = fewest guard-days first; night rotation via `nightRate_`). The single-block `generateNextRotation`/`buildBlockRows_` does plain cumulative-hours fairness only.
 
 ## UI capabilities (current)
