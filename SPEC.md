@@ -165,7 +165,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 ### 7.3 Admin-only tabs (behind password)
 - **"טיוטה" (Draft):** generate next block, **generate week (7 days)**, optionally mark "must-patrol" soldiers for the next block, edit any guard slot inline, then **Approve & Publish** or **Discard**. A banner reminds that the draft is not visible to soldiers.
 - **"חיילים" (Soldiers):** add a soldier (name, phone, email, role, guard-eligible); list all with a private-note indicator; **set each soldier's join/leave presence window** (`start_date`/`end_date`, date+time) inline — outside the window the soldier isn't scheduled; empty both = permanently in base; remove (soft-delete → inactive, history kept).
-- **"הוגנות" (Fairness):** (a) cumulative guard hours per soldier, sorted ascending, so the admin sees who's next; (b) a **load table** per soldier of **guard (static) hours** + **standby hours** (guard-days × 24) vs **patrol count**. A **"include draft" toggle (default on)** recomputes both tables over published **+ the unpublished draft** (projected view) vs published-only.
+- **"הוגנות" (Fairness):** (a) cumulative guard hours per soldier, sorted ascending, so the admin sees who's next; (b) a **load table** per soldier of **guard (static) hours** + **standby hours** (guard-days × 24) vs **patrol count**. (c) a **day/night card** — per soldier, count of **day** vs **night** shifts (night = a shift starting 00:00–06:00) and the **night %**, with a target of **~25%** for everyone who does guard duty (flag deviations beyond ±15 points). A **"include draft" toggle (default on)** recomputes all three tables over published **+ the unpublished draft** (projected view) vs published-only.
 
 ---
 

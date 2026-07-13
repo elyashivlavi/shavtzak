@@ -607,7 +607,24 @@ function viewFairness() {
       '<p class="muted">שעות עמדה = סכום משמרות השמירה. כוננות = ימי-שמירה × 24. פטרול = מספר שיבוצי פטרול.</p>' +
       '<table><tr><th>חייל</th><th>שעות עמדה</th><th>שעות כוננות</th><th>פטרולים</th></tr>' + drows + '</table></div>';
   }
-  return toggle + fairnessCard + dutyCard;
+
+  // כרטיס יום/לילה: לילה = 00:00–06:00. יעד ~25% לכל שומר עמדות.
+  var dn = (dutySrc || []).filter(function (d) { return (Number(d.day_shifts) + Number(d.night_shifts)) > 0; })
+    .map(function (d) { var tot = Number(d.day_shifts) + Number(d.night_shifts); return { name: d.name, day: Number(d.day_shifts), night: Number(d.night_shifts), pct: Math.round(d.night_shifts / tot * 100) }; })
+    .sort(function (a, c) { return c.pct - a.pct; });
+  var dnCard = '';
+  if (dn.length) {
+    var dnrows = dn.map(function (d) {
+      var off = Math.abs(d.pct - 25) > 15;
+      return '<tr><td>' + esc(d.name) + '</td><td>' + d.day + '</td><td>' + d.night +
+        '</td><td style="' + (off ? 'color:var(--danger);font-weight:600' : 'color:var(--patrol)') + '">' + d.pct + '%</td></tr>';
+    }).join('');
+    dnCard = '<div class="card"><h2>יום / לילה' + (useDraft ? ' <span class="pill count">כולל טיוטה</span>' : '') + '</h2>' +
+      '<p class="muted">לילה = משמרת שמתחילה 00:00–06:00. היעד: ~25% לילות לכל שומר עמדות (אדום = חריגה מ-25% ביותר מ-15 נק\').</p>' +
+      '<table><tr><th>חייל</th><th>משמרות יום</th><th>משמרות לילה</th><th>% לילה</th></tr>' + dnrows + '</table></div>';
+  }
+
+  return toggle + fairnessCard + dutyCard + dnCard;
 }
 
 function wireFairness() {

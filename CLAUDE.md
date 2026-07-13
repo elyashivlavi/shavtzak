@@ -40,12 +40,17 @@ the database. UI is Hebrew, RTL.
 ## Fairness algorithm + placement rules (placement is done by Claude — keep everything here)
 The user wants placements done through Claude. On every roster generation, Claude must honor:
 1. **Cumulative hours:** pick the `guard_count` eligible soldiers with the lowest `cumulative_guard_hours`. Tie-breakers: earliest `last_guard_block`, then alphabetical.
-2. **Night-shift fairness:** whoever did night shifts (**00:00–03:00 / 03:00–06:00**) in a block should get **non-night** shifts next time they guard. Never assign the same person night shifts twice in a row; spread nights across soldiers over the week.
+2. **Night-shift fairness (implemented in `generateWeek`):** night = a shift starting **00:00–06:00**. Target **~25% nights** for every guard soldier. The weekly generator assigns the night positions each block to the guards with the lowest **nights-per-guard-day ratio** (`nightRate_`), spreading nights proportionally. Integer limits mean a soldier with 3 guard-days (6 shifts) lands on 17% or 33%; more shifts converge to 25%. The **"יום/לילה" card** in הוגנות shows each soldier's day/night counts and night % (flags deviation >15pts).
 3. **Presence:** only soldiers available (their `start_date`/`end_date` window covers the block time) enter placement.
 4. **Hard exclusions:** `guard_eligible=FALSE` → never on positions (אסי פרץ). `active=FALSE` → never scheduled.
 5. **Forced patrol:** `forcePatrolIds` — marked soldiers don't go on positions this block (they don't accrue hours → fairness raises them sooner as compensation).
-- Stats are rebuilt (`recomputeStats_`) from all published history on every publish — idempotent, so manual edits are reflected correctly.
-- *Note: the night-shift rule (2) is NOT yet in `buildBlockRows_` code — it's currently a guideline for Claude. To codify it, track each soldier's last shift type.*
+- Stats are rebuilt (`recomputeStats_` → `statsFromRows_`) from all published history on every publish — idempotent. `dutyFromRows_` produces the load + day/night breakdown. Both stats and duty have published-only and published+draft variants (the הוגנות "include draft" toggle, default on).
+- Rules 1–3 are **implemented in `generateWeek`** (balance = fewest guard-days first; night rotation via `nightRate_`). The single-block `generateNextRotation`/`buildBlockRows_` does plain cumulative-hours fairness only.
+
+## UI capabilities (current)
+- **Public tabs:** **"לוז אישי"** — soldier picker (persisted per device) → "כרגע"/"המשמרת הבאה"/contact (call+WhatsApp) + a date picker that scopes **only the shift list**. **"שבצק"** — date picker (‹ today ›), "כוח אפקטיבי", three cards **עמדה / כוננות (two sets: עד 12:00 = prev block, מ-12:00 = this block) / פטרול (merged)**.
+- **Admin (password, persists 24h via localStorage):** extra tabs **"טיוטה"** (generate next block / **ייצר שבוע** / must-patrol / inline draft edit / publish / discard), **"חיילים"** (add; set **join/leave** window `start_date`/`end_date` inline; remove), **"הוגנות"** (cumulative hours; **load table** guard/standby vs patrol; **day/night card** ~25% target; **include-draft toggle**).
+- **Board inline switch (admin):** in שבצק each guard slot is a dropdown → `editBoardAssignment` on the **published** schedule; server **rejects double-booking** (`findDoubleBooking_` — same soldier overlapping times), auto-fixes guard/patrol, recomputes stats. The draft editor (`editAssignment`) runs the same check.
 
 ## Soldier-specific rules (important to preserve)
 - **אלישיב לביא** (elyashivlavi@gmail.com) = **admin** (role=admin).

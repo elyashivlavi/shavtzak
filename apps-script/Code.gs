@@ -226,9 +226,13 @@ function generateWeek(days, pw) {
     }
     var chosen = pool.slice(0, guardCount);
 
-    // סבב לילות: מי שעשה הכי מעט לילות השבוע מקבל את עמדות-הלילה
+    // סבב לילות: יעד ~25% לילות לכל שומר. ממיינים לפי יחס לילות-לימי-עמדה (הנמוך קודם),
+    // כדי שהלילות יתחלקו יחסית למספר ימי-העמדה ולא רק במספר מוחלט.
+    function nightRate_(id) { return (weekNight[id] || 0) / ((weekGuardDays[id] || 0) + 1); }
     var byNight = chosen.slice().sort(function (a, b) {
-      return (weekNight[a.id] || 0) - (weekNight[b.id] || 0) || String(a.name).localeCompare(String(b.name));
+      return nightRate_(a.id) - nightRate_(b.id) ||
+        (weekNight[a.id] || 0) - (weekNight[b.id] || 0) ||
+        String(a.name).localeCompare(String(b.name));
     });
     var ordered = new Array(guardCount), nightList = [], dayList = [], idx = 0;
     for (var pp = 0; pp < guardCount; pp++) (nightPos[pp] ? nightList : dayList).push(pp);
@@ -723,13 +727,16 @@ function dutyBreakdown_() { return dutyFromRows_(readTable(SHEET_PUBLISHED)); }
 function dutyFromRows_(pub) {
   var map = {};
   readTable(SHEET_SOLDIERS).forEach(function (s) {
-    map[s.id] = { soldier_id: s.id, name: s.name, guard_hours: 0, guard_days: {}, patrol_count: 0 };
+    map[s.id] = { soldier_id: s.id, name: s.name, guard_hours: 0, guard_days: {}, patrol_count: 0, day_shifts: 0, night_shifts: 0 };
   });
   pub.forEach(function (r) {
     var m = map[r.soldier_id];
     if (!m) return;
-    if (r.position === 'guard') { m.guard_hours += shiftDurationHours_(r.start, r.end); m.guard_days[r.block_date] = 1; }
-    else m.patrol_count++;
+    if (r.position === 'guard') {
+      m.guard_hours += shiftDurationHours_(r.start, r.end);
+      m.guard_days[r.block_date] = 1;
+      if (isNightShift_(r.start)) m.night_shifts++; else m.day_shifts++;   // לילה = תחילת משמרת 00:00–06:00
+    } else m.patrol_count++;
   });
   return Object.keys(map).map(function (k) {
     var m = map[k];
@@ -737,10 +744,14 @@ function dutyFromRows_(pub) {
       soldier_id: m.soldier_id, name: m.name,
       guard_hours: m.guard_hours,
       standby_hours: Object.keys(m.guard_days).length * 24,
-      patrol_count: m.patrol_count
+      patrol_count: m.patrol_count,
+      day_shifts: m.day_shifts, night_shifts: m.night_shifts
     };
   }).filter(function (m) { return m.guard_hours || m.patrol_count; });
 }
+
+/** משמרת לילה = שעת תחילה בטווח 00:00–06:00. */
+function isNightShift_(start) { var h = parseHourNum_(start); return h >= 0 && h < 6; }
 
 /** תווית יום — האם המשמרת ביום הבלוק או למחרת */
 function dayLabel_(startHour) {

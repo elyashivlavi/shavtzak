@@ -296,6 +296,20 @@ test('getBootstrap admin returns draft-inclusive stats/duty', () => {
   assert(sum(b.statsDraft) > sum(b.stats), 'draft should add guard hours');
 });
 
+// §7.3 day/night shift counting (night = 00:00–06:00)
+test('dutyFromRows_ counts day vs night shifts', () => {
+  reset();
+  const id = G.readTable('soldiers')[0].id;
+  const rows = [
+    { soldier_id: id, soldier_name: 'x', position: 'guard', start: '00:00', end: '03:00', block_date: '2026-07-13' },
+    { soldier_id: id, soldier_name: 'x', position: 'guard', start: '03:00', end: '06:00', block_date: '2026-07-13' },
+    { soldier_id: id, soldier_name: 'x', position: 'guard', start: '12:00', end: '15:00', block_date: '2026-07-13' },
+  ];
+  const d = G.dutyFromRows_(rows).find((m) => m.soldier_id === id);
+  assert.strictEqual(d.night_shifts, 2);
+  assert.strictEqual(d.day_shifts, 1);
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');
