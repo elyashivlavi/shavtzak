@@ -155,8 +155,8 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 ### 7.2 Tab "שבצק" (Board) — public (admin can edit)
 - **Date navigation** identical to the personal tab (shared selected date). Defaults to today; prev/next step one day.
 - **"כוח אפקטיבי" (Effective force)** summary for the selected day (headcount).
-- For the selected day's block, **three titled cards**:
-  - **עמדה (Position)** — the guard rotation table: shift label, hours, soldier.
+- For the selected day, **three titled cards**:
+  - **עמדה (Position)** — the guard rotation table for the selected day spans **00:00 of that day → 12:00 the next day (36 hours)**: the after-midnight shifts of the previous 12:00-anchored block plus the full current block. Each row shows **weekday (ראשון…שבת)**, date, hours, soldier.
   - **כוננות (Standby)** — the standby soldiers, shown as **two sets**: **עד 12:00** (the previous block's guards) and **מ-12:00** (this block's guards). A calendar day is covered by two consecutive blocks.
   - **פטרול (Patrol)** — the patrol soldiers as a **single merged list** (no morning/evening split).
 - If no schedule exists for the chosen date, show a clear empty message.

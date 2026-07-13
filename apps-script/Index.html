@@ -367,13 +367,22 @@ function chipsHtml_(arr, cls) {
 }
 
 // לוח שבצק: שלושה כרטיסים לכל בלוק — עמדה / כוננות / פטרול. editable=מנהל יכול להחליף חייל.
+// תצוגת העמדה מ-00:00 של היום הנבחר עד 12:00 למחרת (36ש') — משמרות אחרי-חצות מהבלוק הקודם + הבלוק הנוכחי.
 function renderBoardBlock(block, prevBlock, editable) {
-  // עמדה — סבב משמרות השמירה
-  var g = '<table><tr><th>משמרת</th><th>שעות</th><th>חייל</th></tr>';
+  var startDate = block.block_date;
+  var seq = [];
+  if (prevBlock) prevBlock.guard.forEach(function (it) {
+    if (it.day_label === 'למחרת') seq.push({ it: it, date: startDate, blockDate: prevBlock.block_date }); // 00:00–12:00 של היום הנבחר
+  });
   block.guard.forEach(function (it) {
-    var cell = editable ? boardEditSelect(block.block_date, it.slot, it.soldier_id) : esc(it.soldier_name);
-    g += '<tr class="row-guard"><td>' + esc(it.day_label) + '</td><td>' +
-         esc(it.start) + '–' + esc(it.end) + '</td><td>' + cell + '</td></tr>';
+    seq.push({ it: it, date: it.day_label === 'למחרת' ? addDays(startDate, 1) : startDate, blockDate: block.block_date });
+  });
+
+  var g = '<table><tr><th>יום</th><th>תאריך</th><th>שעות</th><th>חייל</th></tr>';
+  seq.forEach(function (x) {
+    var cell = editable ? boardEditSelect(x.blockDate, x.it.slot, x.it.soldier_id) : esc(x.it.soldier_name);
+    g += '<tr class="row-guard"><td>' + hebDay(x.date) + '</td><td class="kv">' + fmtDM(x.date) + '</td><td>' +
+         esc(x.it.start) + '–' + esc(x.it.end) + '</td><td>' + cell + '</td></tr>';
   });
   g += '</table>';
 
@@ -392,7 +401,7 @@ function renderBoardBlock(block, prevBlock, editable) {
     if (!pSeen[it.soldier_id]) { pSeen[it.soldier_id] = 1; patrol.push(it.soldier_name); }
   });
 
-  return '<div class="block-title">' + esc(block.block_date) + '</div>' +
+  return '<div class="block-title">' + hebDay(startDate) + ' ' + fmtDM(startDate) + ' · 00:00 → ' + fmtDM(addDays(startDate, 1)) + ' 12:00 <span class="muted" style="font-weight:400">(36 שעות)</span></div>' +
     '<div class="card"><h2>🎯 עמדה</h2>' + g + '</div>' +
     '<div class="card"><h2>🔴 כוננות</h2>' + standbyHtml + '</div>' +
     '<div class="card"><h2>🚶 פטרול</h2>' + chipsHtml_(patrol, 'patrol') + '</div>';
@@ -642,6 +651,9 @@ function addDays(s, n) {
   d.setDate(d.getDate() + n);
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 }
+var HEB_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+function hebDay(s) { var p = String(s).split('-'); return HEB_DAYS[new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])).getDay()]; }
+function fmtDM(s) { var p = String(s).split('-'); return p[2] + '/' + p[1]; }
 function hhToMin(hh) {
   var m = String(hh || '').match(/^(\d{1,2}):(\d{2})/);
   if (!m) return null;
