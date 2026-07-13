@@ -310,6 +310,21 @@ test('dutyFromRows_ counts day vs night shifts', () => {
   assert.strictEqual(d.day_shifts, 1);
 });
 
+// §5 rest day — no back-to-back guard days
+test('generateWeek: no two consecutive guard-days per soldier', () => {
+  reset();
+  G.generateWeek(7, 'admin1234');
+  const guard = G.readTable('schedule_draft').filter((r) => r.position === 'guard');
+  const byS = {};
+  guard.forEach((r) => { (byS[r.soldier_name] = byS[r.soldier_name] || new Set()).add(r.block_date); });
+  Object.keys(byS).forEach((n) => {
+    const dates = [...byS[n]].sort();
+    for (let i = 1; i < dates.length; i++) {
+      assert(G.advanceDate_(dates[i - 1], 1) !== dates[i], n + ' back-to-back ' + dates[i - 1] + '→' + dates[i]);
+    }
+  });
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');

@@ -201,7 +201,13 @@ function generateWeek(days, pw) {
 
   var stats = statsMap_(), windows = soldierWindows_();
   var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך השבוע (איזון + סבב לילות)
+  var guardedPrev = {};                      // מי שמר בבלוק הקודם (כלל מנוחה: אין יומיים עמדה רצופים)
   var rows = [], summary = [], bd = nextBlockDate_();
+  // מאתחלים לפי הבלוק המפורסם האחרון שלפני תחילת השבוע, כדי שהיום הראשון יכבד את כלל המנוחה
+  var prevPublished = advanceDate_(bd, -1);
+  readTable(SHEET_PUBLISHED).forEach(function (r) {
+    if (r.block_date === prevPublished && r.position === 'guard') guardedPrev[r.soldier_id] = 1;
+  });
 
   for (var i = 0; i < n; i++) {
     var instant = blockStartInstant_(bd, anchorHour);
@@ -221,6 +227,10 @@ function generateWeek(days, pw) {
       if (la !== lb) return la < lb ? -1 : 1;
       return String(a.name).localeCompare(String(b.name));
     });
+    // כלל מנוחה: אחרי יום עמדה חייב לפחות יום פטרול — מי ששמר בבלוק הקודם לא נכנס היום.
+    // נופלים חזרה רק אם אין מספיק חיילים אחרים (כדי לא להיכשל).
+    var rested = pool.filter(function (s) { return !guardedPrev[s.id]; });
+    if (rested.length >= guardCount) pool = rested;
     if (pool.length < guardCount) {
       throw new Error('אין מספיק חיילים כשירים בתאריך ' + bd + ' (' + pool.length + '/' + guardCount + ').');
     }
@@ -262,7 +272,8 @@ function generateWeek(days, pw) {
       });
     });
 
-    ordered.forEach(function (g) { weekGuardDays[g.id] = (weekGuardDays[g.id] || 0) + 1; });
+    guardedPrev = {};
+    ordered.forEach(function (g) { weekGuardDays[g.id] = (weekGuardDays[g.id] || 0) + 1; guardedPrev[g.id] = 1; });
     nightList.forEach(function (p) { var g = ordered[p]; weekNight[g.id] = (weekNight[g.id] || 0) + 1; });
     advanceStats_(stats, ordered, bd, 24 / guardCount);
     summary.push({ date: bd, guards: ordered.map(function (g) { return g.name; }) });
