@@ -286,6 +286,16 @@ test('editBoardAssignment swaps guard, de-conflicts patrol, requires admin', () 
   assert.throws(() => G.editBoardAssignment(grow.block_date, grow.slot, patrolSoldier.soldier_id, 'wrong'));
 });
 
+// §7.3 fairness include-draft variants
+test('getBootstrap admin returns draft-inclusive stats/duty', () => {
+  reset();
+  G.generateWeek(7, 'admin1234'); // fills draft; published = seed block only
+  const b = G.getBootstrap('admin1234');
+  assert(Array.isArray(b.statsDraft) && Array.isArray(b.dutyDraft));
+  const sum = (a) => a.reduce((t, s) => t + Number(s.cumulative_guard_hours), 0);
+  assert(sum(b.statsDraft) > sum(b.stats), 'draft should add guard hours');
+});
+
 // §8 cellStr_ conversions
 test('cellStr_ passes strings, formats Date time/date/datetime', () => {
   assert.strictEqual(G.cellStr_('12:00'), '12:00');

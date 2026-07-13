@@ -146,10 +146,15 @@ function getBootstrap(pw) {
     roster: roster
   };
   if (ctx.isAdmin) {
+    var pub = readTable(SHEET_PUBLISHED);
+    var draftRows = readTable(SHEET_DRAFT);
+    var withDraft = pub.concat(draftRows);
     out.soldiers = readTable(SHEET_SOLDIERS);
-    out.draft = buildScheduleView_(readTable(SHEET_DRAFT));
-    out.stats = readTable(SHEET_STATS);
-    out.duty = dutyBreakdown_();
+    out.draft = buildScheduleView_(draftRows);
+    out.stats = statsFromRows_(pub);
+    out.statsDraft = statsFromRows_(withDraft);   // כולל טיוטה
+    out.duty = dutyFromRows_(pub);
+    out.dutyDraft = dutyFromRows_(withDraft);
   }
   return out;
 }
@@ -510,38 +515,26 @@ function removeSoldier(id, pw) {
 // ================================================================
 
 /** בונה מחדש את צבירת השעות מכל ההיסטוריה המפורסמת — אידמפוטנטי */
-function recomputeStats_() {
-  var cfg = getConfigAll();
-  var shiftHours = parseInt(cfg.shift_hours, 10);
-  var published = readTable(SHEET_PUBLISHED);
-  var soldiers = readTable(SHEET_SOLDIERS);
-
+/** בונה מערך סטטיסטיקת הוגנות מתוך שורות שיבוץ נתונות (טהור — לא כותב). */
+function statsFromRows_(rows) {
   var agg = {};
-  soldiers.forEach(function (s) {
+  readTable(SHEET_SOLDIERS).forEach(function (s) {
     agg[s.id] = { soldier_id: s.id, name: s.name, cumulative_guard_hours: 0, blocks: {}, last_guard_block: '' };
   });
-
-  published.forEach(function (r) {
+  rows.forEach(function (r) {
     if (r.position !== 'guard') return;
-    var a = agg[r.soldier_id];
-    if (!a) { a = agg[r.soldier_id] = { soldier_id: r.soldier_id, name: r.soldier_name, cumulative_guard_hours: 0, blocks: {}, last_guard_block: '' }; }
-    a.cumulative_guard_hours += shiftHours;
+    var a = agg[r.soldier_id] || (agg[r.soldier_id] = { soldier_id: r.soldier_id, name: r.soldier_name, cumulative_guard_hours: 0, blocks: {}, last_guard_block: '' });
+    a.cumulative_guard_hours += shiftDurationHours_(r.start, r.end);
     a.blocks[r.block_date] = true;
     if (r.block_date > a.last_guard_block) a.last_guard_block = r.block_date;
   });
-
-  var rows = Object.keys(agg).map(function (id) {
+  return Object.keys(agg).map(function (id) {
     var a = agg[id];
-    return {
-      soldier_id: a.soldier_id,
-      name: a.name,
-      cumulative_guard_hours: a.cumulative_guard_hours,
-      guard_blocks: Object.keys(a.blocks).length,
-      last_guard_block: a.last_guard_block
-    };
+    return { soldier_id: a.soldier_id, name: a.name, cumulative_guard_hours: a.cumulative_guard_hours, guard_blocks: Object.keys(a.blocks).length, last_guard_block: a.last_guard_block };
   });
-  writeTable(SHEET_STATS, rows);
 }
+
+function recomputeStats_() { writeTable(SHEET_STATS, statsFromRows_(readTable(SHEET_PUBLISHED))); }
 
 function statsMap_() {
   var m = {};
@@ -724,8 +717,10 @@ function shiftDurationHours_(start, end) {
  * עמדה = סכום שעות משמרות השמירה; כוננות = מספר ימי-שמירה × 24 (בכוננות לכל הבלוק);
  * פטרול = מספר שיבוצי פטרול.
  */
-function dutyBreakdown_() {
-  var pub = readTable(SHEET_PUBLISHED);
+function dutyBreakdown_() { return dutyFromRows_(readTable(SHEET_PUBLISHED)); }
+
+/** פירוק עומסים מתוך שורות שיבוץ נתונות (טהור). */
+function dutyFromRows_(pub) {
   var map = {};
   readTable(SHEET_SOLDIERS).forEach(function (s) {
     map[s.id] = { soldier_id: s.id, name: s.name, guard_hours: 0, guard_days: {}, patrol_count: 0 };

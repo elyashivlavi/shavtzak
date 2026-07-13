@@ -120,7 +120,7 @@ function loadAdminPw() {
 }
 function saveAdminPw(pw) { try { localStorage.setItem('shavtzak_admin', JSON.stringify({ pw: pw, ts: Date.now() })); } catch (e) {} }
 function clearAdminPw() { try { localStorage.removeItem('shavtzak_admin'); } catch (e) {} }
-var STATE = { boot: null, adminPw: loadAdminPw(),
+var STATE = { boot: null, adminPw: loadAdminPw(), includeDraft: true,
   selectedId: (function () { try { return localStorage.getItem('shavtzak_soldier') || ''; } catch (e) { return ''; } })() };
 var CURRENT_TAB = null;
 
@@ -185,7 +185,7 @@ function render() {
   else if (CURRENT_TAB === 'board') { c.innerHTML = viewBoard(); wireBoard(); }
   else if (CURRENT_TAB === 'draft') { c.innerHTML = viewDraft(); wireDraft(); }
   else if (CURRENT_TAB === 'soldiers') { c.innerHTML = viewSoldiers(); wireSoldiers(); }
-  else if (CURRENT_TAB === 'fairness') c.innerHTML = viewFairness();
+  else if (CURRENT_TAB === 'fairness') { c.innerHTML = viewFairness(); wireFairness(); }
 }
 
 function roleName(r) {
@@ -575,20 +575,28 @@ function fromDTLocal(v) { return v ? String(v).replace('T', ' ') : ''; }
 
 // ---- הוגנות (מנהל) ----
 function viewFairness() {
-  var stats = (STATE.boot.stats || []).slice().sort(function (a, b) {
-    return Number(a.cumulative_guard_hours) - Number(b.cumulative_guard_hours);
+  var b = STATE.boot;
+  var useDraft = STATE.includeDraft && b.hasDraft;
+  var statsSrc = useDraft ? (b.statsDraft || b.stats) : b.stats;
+  var dutySrc = useDraft ? (b.dutyDraft || b.duty) : b.duty;
+
+  var toggle = b.hasDraft
+    ? '<div class="card" style="padding:12px 16px"><label class="muted" style="cursor:pointer"><input type="checkbox" id="fair-draft" ' + (STATE.includeDraft ? 'checked' : '') + ' style="width:auto"> כלול את הטיוטה בחישוב (תצוגה צפויה)</label></div>'
+    : '';
+
+  var stats = (statsSrc || []).slice().sort(function (a, c) {
+    return Number(a.cumulative_guard_hours) - Number(c.cumulative_guard_hours);
   });
-  if (!stats.length) return '<div class="card"><p class="muted">אין עדיין נתונים.</p></div>';
+  if (!stats.length) return toggle + '<div class="card"><p class="muted">אין עדיין נתונים.</p></div>';
   var rows = stats.map(function (s) {
     return '<tr><td>' + esc(s.name) + '</td><td>' + esc(s.cumulative_guard_hours) +
       '</td><td>' + esc(s.guard_blocks) + '</td><td class="kv">' + (esc(s.last_guard_block) || '—') + '</td></tr>';
   }).join('');
-  var fairnessCard = '<div class="card"><h2>צבירת שעות שמירה</h2>' +
+  var fairnessCard = '<div class="card"><h2>צבירת שעות שמירה' + (useDraft ? ' <span class="pill count">כולל טיוטה</span>' : '') + '</h2>' +
     '<p class="muted">האלגוריתם מעלה לשמירה את מי שצבר הכי מעט שעות. מיון מהנמוך לגבוה.</p>' +
     '<table><tr><th>חייל</th><th>שעות מצטברות</th><th>מס\' בלוקים</th><th>שמירה אחרונה</th></tr>' + rows + '</table></div>';
 
-  // טבלת עומסים: עמדה+כוננות מול פטרול (מההיסטוריה המפורסמת)
-  var duty = (STATE.boot.duty || []).slice().sort(function (a, b) { return Number(b.guard_hours) - Number(a.guard_hours); });
+  var duty = (dutySrc || []).slice().sort(function (a, c) { return Number(c.guard_hours) - Number(a.guard_hours); });
   var dutyCard = '';
   if (duty.length) {
     var drows = duty.map(function (d) {
@@ -599,7 +607,12 @@ function viewFairness() {
       '<p class="muted">שעות עמדה = סכום משמרות השמירה. כוננות = ימי-שמירה × 24. פטרול = מספר שיבוצי פטרול.</p>' +
       '<table><tr><th>חייל</th><th>שעות עמדה</th><th>שעות כוננות</th><th>פטרולים</th></tr>' + drows + '</table></div>';
   }
-  return fairnessCard + dutyCard;
+  return toggle + fairnessCard + dutyCard;
+}
+
+function wireFairness() {
+  var c = document.getElementById('fair-draft');
+  if (c) c.onchange = function () { STATE.includeDraft = c.checked; render(); };
 }
 
 // ---- עזר ----
