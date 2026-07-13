@@ -928,18 +928,33 @@ function dutyFromRows_(pub) {
   });
   return Object.keys(map).map(function (k) {
     var m = map[k];
+    // ימי עמדה רצופים = כמה ימים מעבר לראשון ברצף הצמוד הארוך ביותר (כלל המנוחה → אמור להיות 0)
+    var consec = Math.max(0, maxRunOfDays_(Object.keys(m.guard_days)) - 1);
     return {
       soldier_id: m.soldier_id, name: m.name,
       guard_hours: m.guard_hours,
       standby_hours: Object.keys(m.guard_days).length * 24,
       patrol_count: m.patrol_count,
-      day_shifts: m.day_shifts, night_shifts: m.night_shifts
+      day_shifts: m.day_shifts, night_shifts: m.night_shifts,
+      consec_static_days: consec
     };
   }).filter(function (m) { return m.guard_hours || m.patrol_count; });
 }
 
 /** משמרת לילה = שעת תחילה בטווח 00:00–06:00. */
 function isNightShift_(start) { var h = parseHourNum_(start); return h >= 0 && h < 6; }
+
+/** האורך המרבי של רצף ימים צמודים בקבוצת block_dates (ימים סמוכים = הפרש יום אחד). */
+function maxRunOfDays_(dateKeys) {
+  var days = dateKeys.slice().sort();
+  var max = 0, run = 0, prev = null;
+  days.forEach(function (d) {
+    run = (prev && daysBetween_(prev, d) === 1) ? run + 1 : 1;
+    if (run > max) max = run;
+    prev = d;
+  });
+  return max;
+}
 
 /** תווית יום — האם המשמרת ביום הבלוק או למחרת */
 function dayLabel_(startHour) {

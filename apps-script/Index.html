@@ -693,7 +693,21 @@ function viewFairness() {
       '<table><tr><th>חייל</th><th>משמרות יום</th><th>משמרות לילה</th><th>% לילה</th></tr>' + dnrows + '</table></div>';
   }
 
-  return toggle + fairnessCard + dutyCard + dnCard;
+  // עמדה רצופה: ימי עמדה (שמירה) צמודים מעבר ליום אחד. כלל המנוחה אוסר → אמור להיות 0 לכולם.
+  var consec = (dutySrc || []).map(function (d) { return { name: d.name, n: Number(d.consec_static_days || 0) }; })
+    .sort(function (a, c) { return c.n - a.n; });
+  var maxConsec = consec.reduce(function (m, d) { return Math.max(m, d.n); }, 0);
+  var consecCard = '<div class="card"><h2>עמדה רצופה' + (useDraft ? ' <span class="pill count">כולל טיוטה</span>' : '') + '</h2>' +
+    '<p class="muted">מספר ימי עמדה (שמירה) רצופים מעבר ליום אחד. כלל המנוחה אוסר יומיים עמדה ברצף — <strong>אמור להיות 0 לכל החיילים</strong>.</p>' +
+    (maxConsec === 0
+      ? '<p style="color:var(--patrol);font-weight:600">✓ אין ימי עמדה רצופים לאף חייל.</p>'
+      : '<table><tr><th>חייל</th><th>ימי עמדה רצופים</th></tr>' +
+        consec.map(function (d) {
+          return '<tr><td>' + esc(d.name) + '</td><td style="' + (d.n > 0 ? 'color:var(--danger);font-weight:600' : 'color:var(--patrol)') + '">' + d.n + '</td></tr>';
+        }).join('') + '</table>') +
+    '</div>';
+
+  return toggle + fairnessCard + dutyCard + dnCard + consecCard;
 }
 
 function wireFairness() {

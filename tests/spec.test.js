@@ -329,6 +329,22 @@ test('generateRange builds a block per day in [start..end]', () => {
   assert.throws(() => G.generateRange('2030-05-10', '2030-05-10', [], 'wrong'), 'requires admin');
 });
 
+// fairness: consecutive static (guard) days — should be 0 under the rest rule
+test('dutyFromRows_ reports consecutive guard days (0 when non-adjacent)', () => {
+  reset();
+  const gd = (sid, date) => ({
+    block_date: date, shift_date: date, position: 'guard', slot: '0',
+    start: '12:00', end: '15:00', day_label: 'היום', soldier_id: sid, soldier_name: 'X', standby: 'TRUE', note: '',
+  });
+  const A = G.readTable('soldiers')[0].id, B = G.readTable('soldiers')[1].id;
+  // A guards on adjacent days (violation), B on non-adjacent days (fine)
+  const rows = [gd(A, '2026-03-01'), gd(A, '2026-03-02'), gd(A, '2026-03-03'), gd(B, '2026-03-01'), gd(B, '2026-03-05')];
+  const duty = G.dutyFromRows_(rows);
+  const a = duty.find((d) => d.soldier_id === A), b = duty.find((d) => d.soldier_id === B);
+  assert.strictEqual(a.consec_static_days, 2, 'A: 3 in a row → 2 extra consecutive');
+  assert.strictEqual(b.consec_static_days, 0, 'B: non-adjacent → 0');
+});
+
 // §1/§7.2 no double-booking detection
 test('findDoubleBooking_ flags overlaps, allows adjacent', () => {
   const ok = [
