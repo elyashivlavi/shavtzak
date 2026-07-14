@@ -166,7 +166,11 @@ function getBootstrap(pw) {
   if (ctx.isAdmin) {
     var base = fairnessBaseRows_();               // ארכיון קבוע + מפורסם (דדופ) — הבסיס להוגנות
     var draftRows = readTable(SHEET_DRAFT);
-    var withDraft = base.concat(draftRows);
+    // תצוגת "כולל טיוטה": הטיוטה מחליפה בלוקים קיימים באותו תאריך (כמו בפרסום), לא מצטברת עליהם —
+    // אחרת תאריך שתוכנן מחדש נספר פעמיים (גם מהמפורסם הישן וגם מהטיוטה) ומזייף רצף ימי-עמדה.
+    var draftDates = {};
+    draftRows.forEach(function (r) { draftDates[r.block_date] = true; });
+    var withDraft = base.filter(function (r) { return !draftDates[r.block_date]; }).concat(draftRows);
     out.soldiers = readTable(SHEET_SOLDIERS);
     out.draft = buildScheduleView_(draftRows);
     out.stats = statsFromRows_(base);

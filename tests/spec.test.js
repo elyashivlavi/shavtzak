@@ -412,6 +412,21 @@ test('getBootstrap admin returns draft-inclusive stats/duty', () => {
   assert(sum(b.statsDraft) > sum(b.stats), 'draft should add guard hours');
 });
 
+// re-planning published dates as a draft must NOT double-count in the projection
+// (else old-published ∪ new-draft spans consecutive days → false "consecutive guard days")
+test('getBootstrap: draft replaces same-date published blocks in the projection', () => {
+  reset();
+  G.generateWeek(3, 'admin1234');
+  G.publishDraft('admin1234');
+  const dates = Array.from(new Set(G.readTable('schedule_published').map((r) => r.block_date))).sort();
+  // re-plan the exact published range as a fresh draft
+  G.generateRange(dates[0], dates[dates.length - 1], [], 'admin1234');
+  const b = G.getBootstrap('admin1234');
+  // projection is a valid schedule → no soldier shows inflated consecutive guard-days
+  const worst = Math.max(0, ...b.dutyDraft.map((d) => Number(d.consec_static_days) || 0));
+  assert.strictEqual(worst, 0, 'draft-inclusive projection must not double-count re-planned dates');
+});
+
 // §7.3 day/night shift counting (night = 00:00–06:00)
 test('dutyFromRows_ counts day vs night shifts', () => {
   reset();
