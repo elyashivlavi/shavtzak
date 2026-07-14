@@ -974,6 +974,8 @@ function dutyFromRows_(pub) {
     var m = map[k];
     // ימי עמדה רצופים = כמה ימים מעבר לראשון ברצף הצמוד הארוך ביותר (כלל המנוחה → אמור להיות 0)
     var consec = Math.max(0, maxRunOfDays_(Object.keys(m.guard_days)) - 1);
+    // ימי פטרול רצופים = אורך הרצף הצמוד הארוך של ימי-פטרול (יום = 12:00→12:00, לפי block_date). מידע בלבד.
+    var consecPatrol = maxRunOfDays_(Object.keys(m.patrol_days));
     // נוכחות = ימי-שיבוץ בפועל (עמדה+פטרול, זרים). אחוזי כוננות/פטרול יחסית לימים שהחייל נכח.
     var guardDays = Object.keys(m.guard_days).length;
     var patrolDays = Object.keys(m.patrol_days).length;
@@ -987,7 +989,7 @@ function dutyFromRows_(pub) {
       standby_pct: presentDays ? Math.round(guardDays / presentDays * 100) : 0,
       patrol_pct: presentDays ? Math.round(patrolDays / presentDays * 100) : 0,
       day_shifts: m.day_shifts, night_shifts: m.night_shifts,
-      consec_static_days: consec
+      consec_static_days: consec, consec_patrol_days: consecPatrol
     };
   }).filter(function (m) { return m.guard_hours || m.patrol_count; });
 }

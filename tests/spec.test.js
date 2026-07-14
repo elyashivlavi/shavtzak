@@ -388,6 +388,21 @@ test('dutyFromRows_ reports consecutive guard days (0 when non-adjacent)', () =>
   assert.strictEqual(b.consec_static_days, 0, 'B: non-adjacent → 0');
 });
 
+test('dutyFromRows_ reports consecutive patrol days (longest adjacent run)', () => {
+  reset();
+  const pt = (sid, date) => ({
+    block_date: date, shift_date: date, position: 'patrol', slot: 'morning',
+    start: '06:00', end: '', soldier_id: sid, soldier_name: 'X', standby: '', note: '',
+  });
+  const A = G.readTable('soldiers')[0].id, B = G.readTable('soldiers')[1].id;
+  // A: 3 adjacent patrol days → run 3; B: two non-adjacent → run 1
+  const rows = [pt(A, '2026-03-01'), pt(A, '2026-03-02'), pt(A, '2026-03-03'), pt(B, '2026-03-01'), pt(B, '2026-03-05')];
+  const duty = G.dutyFromRows_(rows);
+  const a = duty.find((d) => d.soldier_id === A), b = duty.find((d) => d.soldier_id === B);
+  assert.strictEqual(a.consec_patrol_days, 3, 'A: 3 adjacent patrol days');
+  assert.strictEqual(b.consec_patrol_days, 1, 'B: non-adjacent → longest run 1');
+});
+
 // §1/§7.2 no double-booking detection
 test('findDoubleBooking_ flags overlaps, allows adjacent', () => {
   const ok = [
