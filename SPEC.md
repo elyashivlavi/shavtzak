@@ -131,7 +131,9 @@ Placement (who guards, in which shift) must satisfy, in order:
 7. **קלע (marksman) on patrol:** at least one soldier carrying the `קלע` skill must remain on
    **patrol** each block. If every present marksman was picked for guard, the generator releases the
    lowest-priority one (most accrued) back to patrol and pulls up the next-fairest non-marksman.
-   Best-effort — skipped only when no marksman is present or no non-marksman candidate exists.
+   **Only enforced when 2+ marksmen are present** — with a single marksman the rule is ignored (so
+   the sole marksman isn't permanently benched to patrol). Also skipped when no non-marksman
+   candidate exists.
 
 Fairness stats are always **rebuilt from the immutable history base** so manual edits are reflected correctly.
 

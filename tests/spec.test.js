@@ -347,6 +347,17 @@ test('generateWeek keeps at least one קלע in patrol every block', () => {
   });
 });
 
+// rule is IGNORED when only one קלע is present (else the sole marksman would never guard)
+test('generateWeek: single קלע is NOT forced to patrol', () => {
+  reset();
+  const only = G.readTable('soldiers').find((s) => G.truthy_(s.active) && G.truthy_(s.guard_eligible));
+  G.updateSoldier(only.id, { skills: ['קלע'] }, 'admin1234');
+  G.generateWeek(7, 'admin1234');
+  const draft = G.readTable('schedule_draft');
+  const guardsSomeBlock = draft.some((r) => r.position === 'guard' && r.soldier_id === only.id);
+  assert(guardsSomeBlock, 'sole קלע should be allowed to guard, not benched to patrol');
+});
+
 // fairness: consecutive static (guard) days — should be 0 under the rest rule
 test('dutyFromRows_ reports consecutive guard days (0 when non-adjacent)', () => {
   reset();

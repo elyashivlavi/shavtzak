@@ -290,8 +290,9 @@ function buildDraftRange_(startDate, n, forced, cfg) {
 
     // כלל: לפחות קלע אחד חייב להישאר בפטרול. אם כל הקלעים הנוכחיים נבחרו לעמדות,
     // משחררים את הקלע בעל העדיפות-הנמוכה (שצבר הכי הרבה) ומכניסים במקומו את הלא-קלע ההוגן הבא.
+    // חל רק כשיש לפחות 2 קלעים נוכחים — עם קלע יחיד הכלל בטל (אחרת נצטרך להוקיע אותו לפטרול תמיד).
     var presentKala = present.filter(function (s) { return hasSkill_(s, 'קלע'); });
-    if (presentKala.length) {
+    if (presentKala.length >= 2) {
       var chosenIds = {};
       chosen.forEach(function (c) { chosenIds[c.id] = 1; });
       var kalaFreeInPatrol = presentKala.some(function (k) { return !chosenIds[k.id]; });
