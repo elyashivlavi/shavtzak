@@ -253,6 +253,14 @@ function buildDraftRange_(startDate, n, forced, cfg) {
       if (hnum >= 0 && hnum < 6) { nightPos[p] = true; break; }
     }
   }
+  // עמדות אסורות לרחפן: משמרת שמתחילה ב-06:00 (06–09) או 18:00 (18–21) — הרחפן נדרש אז למשימה אחרת
+  var dronePos = {};
+  for (var dp = 0; dp < guardCount; dp++) {
+    for (var ds = dp; ds < starts.length; ds += guardCount) {
+      var dh = parseHourNum_(starts[ds]);
+      if (dh === 6 || dh === 18) { dronePos[dp] = true; break; }
+    }
+  }
 
   var stats = statsMap_(), windows = soldierWindows_();
   var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך הטווח (איזון + סבב לילות)
@@ -323,6 +331,17 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     for (var pp = 0; pp < guardCount; pp++) (nightPos[pp] ? nightList : dayList).push(pp);
     nightList.forEach(function (p) { ordered[p] = byNight[idx++]; });
     dayList.forEach(function (p) { ordered[p] = byNight[idx++]; });
+
+    // כלל רחפן: רחפן לא יאויש בעמדה עם משמרת 06–09/18–21. אם שובץ שם, מחליף עמדה עם שומר לא-רחפן בעמדה מותרת.
+    for (var fp = 0; fp < guardCount; fp++) {
+      if (dronePos[fp] && ordered[fp] && hasSkill_(ordered[fp], 'רחפן')) {
+        for (var aq = 0; aq < guardCount; aq++) {
+          if (!dronePos[aq] && ordered[aq] && !hasSkill_(ordered[aq], 'רחפן')) {
+            var t = ordered[fp]; ordered[fp] = ordered[aq]; ordered[aq] = t; break;
+          }
+        }
+      }
+    }
 
     var guardIds = {};
     ordered.forEach(function (g) { guardIds[g.id] = true; });

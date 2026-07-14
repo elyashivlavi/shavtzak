@@ -134,6 +134,10 @@ Placement (who guards, in which shift) must satisfy, in order:
    **Only enforced when 2+ marksmen are present** — with a single marksman the rule is ignored (so
    the sole marksman isn't permanently benched to patrol). Also skipped when no non-marksman
    candidate exists.
+8. **רחפן (drone operator) shift restriction:** a soldier with the `רחפן` skill may guard, but must
+   **never** hold the guard shift that starts **06:00 (06–09)** or **18:00 (18–21)** — the drone
+   operator is needed for other tasks in those windows. If a רחפן is placed on such a position, the
+   generator swaps positions with a non-רחפן guard in an allowed position. Best-effort.
 
 Fairness stats are always **rebuilt from the immutable history base** so manual edits are reflected correctly.
 

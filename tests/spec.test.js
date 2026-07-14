@@ -358,6 +358,20 @@ test('generateWeek: single קלע is NOT forced to patrol', () => {
   assert(guardsSomeBlock, 'sole קלע should be allowed to guard, not benched to patrol');
 });
 
+// rule: a רחפן on guard never holds the 06:00-09:00 or 18:00-21:00 shift
+test('generateWeek keeps רחפן off the 06:00/18:00 guard shifts', () => {
+  reset();
+  const elig = G.readTable('soldiers').filter((s) => G.truthy_(s.active) && G.truthy_(s.guard_eligible));
+  const drone = elig[0].id;
+  G.updateSoldier(drone, { skills: ['רחפן'] }, 'admin1234');
+  G.generateWeek(7, 'admin1234');
+  G.readTable('schedule_draft').forEach((r) => {
+    if (r.position === 'guard' && (r.start === '06:00' || r.start === '18:00')) {
+      assert.notStrictEqual(r.soldier_id, drone, `רחפן on forbidden shift ${r.block_date} ${r.start}`);
+    }
+  });
+});
+
 // fairness: consecutive static (guard) days — should be 0 under the rest rule
 test('dutyFromRows_ reports consecutive guard days (0 when non-adjacent)', () => {
   reset();
