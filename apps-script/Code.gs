@@ -949,7 +949,9 @@ function shiftDurationHours_(start, end) {
 /**
  * פירוק עומסים לכל חייל מההיסטוריה המפורסמת: שעות עמדה/כוננות (שמירה) מול פטרול.
  * עמדה = סכום שעות משמרות השמירה; כוננות = מספר ימי-שמירה × 24 (בכוננות לכל הבלוק);
- * פטרול = מספר שיבוצי פטרול.
+ * פטרול = מספר שיבוצי פטרול. כמו כן אחוזי כוננות/פטרול יחסית לנוכחות: presentDays =
+ * ימי עמדה + ימי פטרול (זרים), standby_pct = ימי-עמדה/נוכחות, patrol_pct = ימי-פטרול/נוכחות
+ * — כדי להשוות הוגנות בין חיילים שנכחו זמן שונה.
  */
 function dutyBreakdown_() { return dutyFromRows_(fairnessBaseRows_()); }
 
@@ -957,7 +959,7 @@ function dutyBreakdown_() { return dutyFromRows_(fairnessBaseRows_()); }
 function dutyFromRows_(pub) {
   var map = {};
   readTable(SHEET_SOLDIERS).forEach(function (s) {
-    map[s.id] = { soldier_id: s.id, name: s.name, guard_hours: 0, guard_days: {}, patrol_count: 0, day_shifts: 0, night_shifts: 0 };
+    map[s.id] = { soldier_id: s.id, name: s.name, guard_hours: 0, guard_days: {}, patrol_count: 0, patrol_days: {}, day_shifts: 0, night_shifts: 0 };
   });
   pub.forEach(function (r) {
     var m = map[r.soldier_id];
@@ -966,17 +968,24 @@ function dutyFromRows_(pub) {
       m.guard_hours += shiftDurationHours_(r.start, r.end);
       m.guard_days[r.block_date] = 1;
       if (isNightShift_(r.start)) m.night_shifts++; else m.day_shifts++;   // לילה = תחילת משמרת 00:00–06:00
-    } else m.patrol_count++;
+    } else { m.patrol_count++; m.patrol_days[r.block_date] = 1; }
   });
   return Object.keys(map).map(function (k) {
     var m = map[k];
     // ימי עמדה רצופים = כמה ימים מעבר לראשון ברצף הצמוד הארוך ביותר (כלל המנוחה → אמור להיות 0)
     var consec = Math.max(0, maxRunOfDays_(Object.keys(m.guard_days)) - 1);
+    // נוכחות = ימי-שיבוץ בפועל (עמדה+פטרול, זרים). אחוזי כוננות/פטרול יחסית לימים שהחייל נכח.
+    var guardDays = Object.keys(m.guard_days).length;
+    var patrolDays = Object.keys(m.patrol_days).length;
+    var presentDays = guardDays + patrolDays;
     return {
       soldier_id: m.soldier_id, name: m.name,
       guard_hours: m.guard_hours,
-      standby_hours: Object.keys(m.guard_days).length * 24,
+      standby_hours: guardDays * 24,
       patrol_count: m.patrol_count,
+      guard_days: guardDays, patrol_days: patrolDays, present_days: presentDays,
+      standby_pct: presentDays ? Math.round(guardDays / presentDays * 100) : 0,
+      patrol_pct: presentDays ? Math.round(patrolDays / presentDays * 100) : 0,
       day_shifts: m.day_shifts, night_shifts: m.night_shifts,
       consec_static_days: consec
     };

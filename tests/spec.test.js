@@ -455,6 +455,28 @@ test('dutyFromRows_ counts day vs night shifts', () => {
   assert.strictEqual(d.day_shifts, 1);
 });
 
+// duty on-call / patrol rate relative to presence (present-days = guard-days + patrol-days)
+test('dutyFromRows_ reports standby/patrol % relative to present-days', () => {
+  reset();
+  const id = G.readTable('soldiers')[0].id;
+  const rows = [
+    // day 1: guard (2 shifts, same block-date = 1 guard-day)
+    { soldier_id: id, soldier_name: 'x', position: 'guard', start: '00:00', end: '03:00', block_date: '2026-07-13' },
+    { soldier_id: id, soldier_name: 'x', position: 'guard', start: '03:00', end: '06:00', block_date: '2026-07-13' },
+    // days 2-4: patrol (2 shifts each = 3 patrol-days)
+    { soldier_id: id, soldier_name: 'x', position: 'patrol', slot: 'morning', block_date: '2026-07-14' },
+    { soldier_id: id, soldier_name: 'x', position: 'patrol', slot: 'evening', block_date: '2026-07-14' },
+    { soldier_id: id, soldier_name: 'x', position: 'patrol', slot: 'morning', block_date: '2026-07-15' },
+    { soldier_id: id, soldier_name: 'x', position: 'patrol', slot: 'morning', block_date: '2026-07-16' },
+  ];
+  const d = G.dutyFromRows_(rows).find((m) => m.soldier_id === id);
+  assert.strictEqual(d.guard_days, 1);
+  assert.strictEqual(d.patrol_days, 3);
+  assert.strictEqual(d.present_days, 4);
+  assert.strictEqual(d.standby_pct, 25);  // 1/4
+  assert.strictEqual(d.patrol_pct, 75);   // 3/4
+});
+
 // §5 rest day — no back-to-back guard days
 test('generateWeek: no two consecutive guard-days per soldier', () => {
   reset();
