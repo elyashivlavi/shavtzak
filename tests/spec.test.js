@@ -139,6 +139,47 @@ test('setup creates 5 tabs, seeds 12 soldiers, seeds first block', () => {
   assert(G.readTable('schedule_published').length > 0, 'no first block');
 });
 
+// §9 מחלקה tab: seeded, squadGroups_ resolves names→ids
+test('setup seeds מחלקה tab; squadGroups_ resolves members to ids', () => {
+  reset();
+  assert(ACTIVE_SS._store['מחלקה'] !== undefined, 'missing מחלקה tab');
+  const sg = G.squadGroups_();
+  assert.strictEqual(sg.length, 1, 'expected one squad');
+  assert.strictEqual(sg[0].commander, 'אביאל גיאת');
+  assert.strictEqual(Object.keys(sg[0].ids).length, 4, 'commander + 3 soldiers resolved');
+});
+
+// §9 night→day rule: a guard on a night (00:00–06:00) is not put on a night again exactly 2 days later
+test('generateRange avoids night 2 days after a night (best-effort, 0 for seed roster)', () => {
+  reset();
+  G.generateRange('2026-07-20', '2026-07-30', [], 'admin1234');
+  const rows = G.readTable('schedule_draft');
+  const nights = {}; // block_date -> { name: 1 } for night-position guards
+  rows.filter((r) => r.position === 'guard' && G.parseHourNum_(r.start) >= 0 && G.parseHourNum_(r.start) < 6)
+    .forEach((r) => { (nights[r.block_date] = nights[r.block_date] || {})[r.soldier_name] = 1; });
+  const gdates = [...new Set(rows.filter((r) => r.position === 'guard').map((r) => r.block_date))];
+  let violations = 0;
+  gdates.forEach((d) => {
+    const d2 = G.advanceDate_(d, 2);
+    if (!nights[d] || !nights[d2]) return;
+    Object.keys(nights[d]).forEach((nm) => { if (nights[d2][nm]) violations++; });
+  });
+  assert.strictEqual(violations, 0, 'night→day violations: ' + violations);
+});
+
+// §9 squad cohesion (soft nudge): squad members co-guard on some days without breaking balance
+test('generateRange keeps מחלקה members together on at least one guard-day', () => {
+  reset();
+  G.generateRange('2026-07-20', '2026-07-30', [], 'admin1234');
+  const rows = G.readTable('schedule_draft');
+  const squad = new Set(['אביאל גיאת', "אורי אברג'יל", 'נתנאל חזקיה', 'מתן כהן']);
+  const perDay = {};
+  rows.filter((r) => r.position === 'guard' && squad.has(r.soldier_name))
+    .forEach((r) => { (perDay[r.block_date] = perDay[r.block_date] || new Set()).add(r.soldier_name); });
+  const maxTogether = Math.max(0, ...Object.values(perDay).map((s) => s.size));
+  assert(maxTogether >= 2, 'expected squad members to share a guard-day, got max ' + maxTogether);
+});
+
 // §3.4 config has DB-driven shift hours + secret
 test('config seeded with shift_starts and admin_password', () => {
   const cfg = G.getConfigAll();

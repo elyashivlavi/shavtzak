@@ -95,6 +95,13 @@ One row per soldier, **recomputed from the fairness base** on every publish/edit
 | `patrol_evening` | `18:00` | Evening patrol time. |
 | `admin_password` | (secret) | Admin gate. Never exposed to clients. |
 
+### 3.5 מחלקה (squad)
+A grouping of soldiers who should preferably serve together (see rule §5.10). Stored as its own table
+(`מחלקה` tab): **one row per squad**, a `commander` column plus soldier columns (`soldier1..N`). Members
+are referenced **by name** (matched against the `soldiers` roster; unknown names are ignored). A squad
+with fewer than 2 resolvable members is inert. Seeded with one squad: commander **אביאל גיאת**, soldiers
+**אורי אברג׳יל, נתנאל חזקיה, מתן כהן**. Edited directly in the DB tab (no dedicated UI).
+
 ---
 
 ## 4. Scheduling logic
@@ -138,6 +145,22 @@ Placement (who guards, in which shift) must satisfy, in order:
    **never** hold the guard shift that starts **06:00 (06–09)** or **18:00 (18–21)** — the drone
    operator is needed for other tasks in those windows. If a רחפן is placed on such a position, the
    generator swaps positions with a non-רחפן guard in an allowed position. Best-effort.
+9. **Night → day two days later (best-effort):** if a soldier held a **night** on-call position
+   (guard shift starting 00:00–06:00) on a guard-day, and they guard again **exactly two days
+   later**, prefer giving them a **day/evening** position on that later day (a non-night guard
+   position — with the default grid, shifts starting **18:00 (18–21)** or **21:00 (21–00)**). Applied
+   as the top priority when ordering the chosen guards into positions; if every chosen guard is in
+   that situation, night-rotation fairness decides instead. Does not change **who** guards, only
+   **which** position — so it never breaks balance/presence/rest.
+10. **מחלקה cohesion (soft nudge):** soldiers belonging to the same *מחלקה* (a commander + their
+    soldiers, see §3.5) are preferably scheduled **together** — either all on guard (on-call+static)
+    the same block, or all on patrol together. Implemented as a soft nudge: after the fair guard set
+    is chosen, the generator pulls additional present squad members onto guard **only** by swapping
+    out a non-squad guard in the **same balance tier** (equal guard-days-so-far), so it never degrades
+    the primary guard-day balance. If no zero-cost swap exists the squad may split (fairness wins).
+    Squad members who aren't picked for guard remain on patrol together automatically. The rest rule
+    (§5.6) still applies, so a full squad that guards together rests together the next day (a large
+    squad naturally alternates halves across days).
 
 Fairness stats are always **rebuilt from the immutable history base** so manual edits are reflected correctly.
 

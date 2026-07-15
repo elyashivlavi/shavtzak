@@ -14,6 +14,7 @@ var SHEET_PUBLISHED = 'schedule_published';
 var SHEET_PAST      = 'schedule_past';   // ארכיון בלוקים שהסתיימו — לקריאה בלבד, אף פעם לא נערך, רק מוסיפים (append)
 var SHEET_STATS     = 'stats';
 var SHEET_CONFIG    = 'config';
+var SHEET_SQUAD     = 'מחלקה';   // מחלקה: מפקד + חיילים — קבוצה שמנסים לשבץ יחד (nudge רך)
 
 // ===== כותרות =====
 var SOLDIER_HEADERS  = ['id', 'name', 'email', 'role', 'active', 'guard_eligible', 'phone', 'internal_note', 'start_date', 'end_date', 'skills'];
@@ -38,6 +39,8 @@ var SCHEDULE_HEADERS = ['block_date', 'shift_date', 'position', 'slot', 'start',
                         'soldier_id', 'soldier_name', 'standby', 'note'];
 var STATS_HEADERS    = ['soldier_id', 'name', 'cumulative_guard_hours', 'guard_blocks', 'last_guard_block'];
 var CONFIG_HEADERS   = ['key', 'value'];
+// מחלקה: שורה לכל מחלקה — מפקד + עד 8 חיילים בעמודות נפרדות (עריכה ישירה בגיליון)
+var SQUAD_HEADERS    = ['commander', 'soldier1', 'soldier2', 'soldier3', 'soldier4', 'soldier5', 'soldier6', 'soldier7', 'soldier8'];
 
 // ברירות מחדל לקונפיגורציה
 var DEFAULT_CONFIG = {
@@ -263,13 +266,20 @@ function buildDraftRange_(startDate, n, forced, cfg) {
   }
 
   var stats = statsMap_(), windows = soldierWindows_();
+  var squads = squadGroups_();               // קבוצות מחלקה (nudge רך: לשבץ יחד)
   var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך הטווח (איזון + סבב לילות)
   var guardedPrev = {};                      // מי שמר בבלוק הקודם (כלל מנוחה: אין יומיים עמדה רצופים)
+  // nightByDate[block_date] = { id:1 } — מי היה בעמדת לילה באותו יום-עמדה. מזין מהבסיס (ארכיון+מפורסם)
+  // כדי שכלל "לילה → יום כעבור יומיים" יפעל גם בתחילת הטווח, ומתעדכן לכל בלוק שמיוצר.
+  var nightByDate = {};
   var rows = [], summary = [], bd = startDate;
   // מאתחלים לפי הבלוק שלפני תחילת הטווח (מהבסיס: ארכיון+מפורסם), כדי שהיום הראשון יכבד את כלל המנוחה
   var prevDay = advanceDate_(bd, -1);
   fairnessBaseRows_().forEach(function (r) {
     if (r.block_date === prevDay && r.position === 'guard') guardedPrev[r.soldier_id] = 1;
+    if (r.position === 'guard' && parseHourNum_(r.start) >= 0 && parseHourNum_(r.start) < 6) {
+      (nightByDate[r.block_date] = nightByDate[r.block_date] || {})[r.soldier_id] = 1;
+    }
   });
 
   for (var i = 0; i < n; i++) {
@@ -300,6 +310,34 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     }
     var chosen = pool.slice(0, guardCount);
 
+    // nudge רך — מחלקה יחד: מנסים לשבץ את חברי אותה מחלקה יחד בעמדות. רק החלפה בתוך אותה
+    // שכבת-איזון (weekGuardDays זהה) → לא פוגע באיזון עמדה/פטרול (המדד הראשי). מי שלא נבחר
+    // נשאר בפטרול יחד ממילא. best-effort: אם אין החלפה זולה, המחלקה עשויה להתפצל (ההוגנות גוברת).
+    if (squads.length) {
+      var chosenSet = {}; chosen.forEach(function (c) { chosenSet[c.id] = 1; });
+      var poolById = {}; pool.forEach(function (p) { poolById[p.id] = p; });
+      var gd_ = function (id) { return weekGuardDays[id] || 0; };
+      squads.forEach(function (sq) {
+        var presentIds = [], inCount = 0;
+        Object.keys(sq.ids).forEach(function (id) {
+          if (poolById[id]) { presentIds.push(id); if (chosenSet[id]) inCount++; }
+        });
+        if (inCount === 0) return;   // אף חבר מחלקה לא שומר הבלוק — נשארים בפטרול יחד
+        presentIds.forEach(function (id) {
+          if (chosenSet[id]) return;
+          var cand = poolById[id];
+          for (var k = chosen.length - 1; k >= 0; k--) {
+            var g = chosen[k];
+            if (sq.ids[g.id]) continue;               // לא מוציאים חבר מחלקה
+            if (gd_(g.id) !== gd_(cand.id)) continue; // רק אותה שכבת-איזון → עלות אפס באיזון
+            delete chosenSet[g.id]; chosen.splice(k, 1);
+            chosen.push(cand); chosenSet[cand.id] = 1;
+            break;
+          }
+        });
+      });
+    }
+
     // כלל: לפחות קלע אחד חייב להישאר בפטרול. אם כל הקלעים הנוכחיים נבחרו לעמדות,
     // משחררים את הקלע בעל העדיפות-הנמוכה (שצבר הכי הרבה) ומכניסים במקומו את הלא-קלע ההוגן הבא.
     // חל רק כשיש לפחות 2 קלעים נוכחים — עם קלע יחיד הכלל בטל (אחרת נצטרך להוקיע אותו לפטרול תמיד).
@@ -322,8 +360,13 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     // סבב לילות: יעד ~25% לילות לכל שומר. ממיינים לפי יחס לילות-לימי-עמדה (הנמוך קודם),
     // כדי שהלילות יתחלקו יחסית למספר ימי-העמדה ולא רק במספר מוחלט.
     function nightRate_(id) { return (weekNight[id] || 0) / ((weekGuardDays[id] || 0) + 1); }
+    // כלל "לילה → יום כעבור יומיים": מי שהיה בעמדת לילה בדיוק לפני יומיים (bd-2), נדחף לעמדת יום
+    // (18:00/21:00). best-effort — מפתח מיון ראשי; אם כל השומרים ככה, סבב-הלילות מכריע.
+    var nightTwoAgo = nightByDate[advanceDate_(bd, -2)] || {};
     var byNight = chosen.slice().sort(function (a, b) {
-      return nightRate_(a.id) - nightRate_(b.id) ||
+      var pa = nightTwoAgo[a.id] ? 1 : 0, pb = nightTwoAgo[b.id] ? 1 : 0;
+      return (pa - pb) ||   // מי שעשה לילה לפני יומיים → אחרון → עמדות היום
+        nightRate_(a.id) - nightRate_(b.id) ||
         (weekNight[a.id] || 0) - (weekNight[b.id] || 0) ||
         String(a.name).localeCompare(String(b.name));
     });
@@ -368,7 +411,11 @@ function buildDraftRange_(startDate, n, forced, cfg) {
 
     guardedPrev = {};
     ordered.forEach(function (g) { weekGuardDays[g.id] = (weekGuardDays[g.id] || 0) + 1; guardedPrev[g.id] = 1; });
-    nightList.forEach(function (p) { var g = ordered[p]; weekNight[g.id] = (weekNight[g.id] || 0) + 1; });
+    nightList.forEach(function (p) {
+      var g = ordered[p];
+      weekNight[g.id] = (weekNight[g.id] || 0) + 1;
+      (nightByDate[bd] = nightByDate[bd] || {})[g.id] = 1;   // לצורך כלל "לילה → יום כעבור יומיים"
+    });
     advanceStats_(stats, ordered, bd, 24 / guardCount);
     summary.push({ date: bd, guards: ordered.map(function (g) { return g.name; }) });
     bd = advanceDate_(bd, 1);
@@ -857,7 +904,26 @@ function headersFor_(name) {
   if (name === SHEET_SOLDIERS) return SOLDIER_HEADERS;
   if (name === SHEET_STATS) return STATS_HEADERS;
   if (name === SHEET_CONFIG) return CONFIG_HEADERS;
+  if (name === SHEET_SQUAD) return SQUAD_HEADERS;
   return SCHEDULE_HEADERS; // draft + published
+}
+
+/**
+ * קבוצות המחלקה מטאב "מחלקה", מומרות למזהי חיילים (מפקד + חיילים כאחד).
+ * מחזיר [{ commander, ids:{id:true,...} }] — רק מחלקות עם ≥2 חברים קיימים ברשימה.
+ * שמות שאינם ברשימת החיילים מדולגים. משמש ל-nudge הרך של שיבוץ המחלקה יחד.
+ */
+function squadGroups_() {
+  var byName = {};
+  readTable(SHEET_SOLDIERS).forEach(function (s) { byName[String(s.name).trim()] = s.id; });
+  return readTable(SHEET_SQUAD).map(function (r) {
+    var ids = {};
+    SQUAD_HEADERS.forEach(function (h) {
+      var id = byName[String(r[h] || '').trim()];
+      if (id) ids[id] = true;
+    });
+    return { commander: r.commander, ids: ids };
+  }).filter(function (sq) { return Object.keys(sq.ids).length >= 2; });
 }
 
 function soldiersMap_() {
@@ -1049,6 +1115,11 @@ var SEED_FORCE_PATROL = ['גלעד דביר', 'אביאל גיאת'];
 // שומרי הבלוק ההתחלתי (כוננות/סבב קרוב), לפי סדר המשמרות מ-12:00. אם ריק — נופל לברירת מחדל.
 var SEED_FIRST_GUARDS = ['עופר קאסה', 'יהודה ונדרמן', 'בנג\'י פירר', 'אלישיב לביא'];
 
+// מחלקות התחלתיות (מפקד + חיילים). כל שורה = מחלקה אחת. שמות חייבים להתאים לטאב soldiers.
+var SEED_SQUAD = [
+  { commander: 'אביאל גיאת', soldiers: ['אורי אברג\'יל', 'נתנאל חזקיה', 'מתן כהן'] }
+];
+
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -1058,6 +1129,7 @@ function setup() {
   ensureSheet_(ss, SHEET_PAST,      SCHEDULE_HEADERS);
   ensureSheet_(ss, SHEET_STATS,     STATS_HEADERS);
   ensureSheet_(ss, SHEET_CONFIG,    CONFIG_HEADERS);
+  ensureSheet_(ss, SHEET_SQUAD,     SQUAD_HEADERS);
 
   // מוחקים גיליון ברירת מחדל ריק ("Sheet1"/"גיליון1") אם קיים
   ['Sheet1', 'גיליון1'].forEach(function (n) {
@@ -1067,6 +1139,7 @@ function setup() {
 
   seedConfig_();
   seedSoldiers_();
+  seedSquad_();
   seedFirstBlock_();
 
   flashMsg_('ההתקנה הושלמה. פרוס את האפליקציה: Deploy → New deployment → Web app.');
@@ -1108,6 +1181,17 @@ function seedSoldiers_() {
     };
   });
   writeTable(SHEET_SOLDIERS, rows);
+}
+
+function seedSquad_() {
+  var existing = readTable(SHEET_SQUAD);
+  if (existing.length) return; // כבר מוגדר — לא דורסים
+  var rows = SEED_SQUAD.map(function (sq) {
+    var row = { commander: sq.commander };
+    (sq.soldiers || []).forEach(function (nm, i) { row['soldier' + (i + 1)] = nm; });
+    return row;
+  });
+  writeTable(SHEET_SQUAD, rows);
 }
 
 /** בלוק ראשון: עופר קאסה שומר מ-12:00, ואז שלושה כשירים נוספים; השאר בפטרול */
@@ -1179,6 +1263,8 @@ function ensureReady_() {
   if (!ss_().getSheetByName(SHEET_SOLDIERS)) { setup(); return; }
   migrateColumns_(SHEET_SOLDIERS);  // מוסיף עמודות חדשות (phone/start_date/end_date/skills) לגיליון קיים
   if (!ss_().getSheetByName(SHEET_PAST)) ensureSheet_(ss_(), SHEET_PAST, SCHEDULE_HEADERS);
+  if (!ss_().getSheetByName(SHEET_SQUAD)) ensureSheet_(ss_(), SHEET_SQUAD, SQUAD_HEADERS);
+  seedSquad_();    // מזין את המחלקה ההתחלתית אם הטאב ריק (אידמפוטנטי — לא דורס)
   archivePast_();  // מעביר בלוקים שהסתיימו לארכיון הבלתי-משתנה (אידמפוטנטי)
 }
 
