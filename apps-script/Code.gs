@@ -376,13 +376,18 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     dayList.forEach(function (p) { ordered[p] = byNight[idx++]; });
 
     // כלל רחפן: רחפן לא יאויש בעמדה עם משמרת 06–09/18–21. אם שובץ שם, מחליף עמדה עם שומר לא-רחפן בעמדה מותרת.
+    // עדיפות: עמדת-יום מותרת (לא-דרון ולא-לילה) — כדי לא לזרוק רחפן לעמדת-לילה ולסתור את כלל "לילה→יום".
+    // נפילה חזרה: כל עמדה מותרת (גם לילה) — best-effort אם אין עמדת-יום פנויה.
     for (var fp = 0; fp < guardCount; fp++) {
       if (dronePos[fp] && ordered[fp] && hasSkill_(ordered[fp], 'רחפן')) {
+        var target = -1;
         for (var aq = 0; aq < guardCount; aq++) {
-          if (!dronePos[aq] && ordered[aq] && !hasSkill_(ordered[aq], 'רחפן')) {
-            var t = ordered[fp]; ordered[fp] = ordered[aq]; ordered[aq] = t; break;
-          }
+          if (!dronePos[aq] && !nightPos[aq] && ordered[aq] && !hasSkill_(ordered[aq], 'רחפן')) { target = aq; break; }
         }
+        if (target < 0) for (var aq2 = 0; aq2 < guardCount; aq2++) {
+          if (!dronePos[aq2] && ordered[aq2] && !hasSkill_(ordered[aq2], 'רחפן')) { target = aq2; break; }
+        }
+        if (target >= 0) { var t = ordered[fp]; ordered[fp] = ordered[target]; ordered[target] = t; }
       }
     }
 
