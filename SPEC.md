@@ -164,6 +164,17 @@ Placement (who guards, in which shift) must satisfy, in order:
 
 Fairness stats are always **rebuilt from the immutable history base** so manual edits are reflected correctly.
 
+**Weekly fairness window (Sunday → Sunday):** fairness is counted **only within the current week**,
+defined as **Sunday 12:00 (anchor) → the next Sunday 12:00**. The window rolls forward automatically
+(it is derived from today's date, so every Sunday noon it advances). Blocks outside the current week
+are **ignored** for fairness. This applies to **both** the הוגנות display metrics (cumulative hours,
+day/night, patrol %, consecutive-static-days) **and** the generator's fairness seed (a soldier's
+accrued load resets each week for placement decisions). **Exception:** the safety rules that need real
+day-adjacency — the **rest rule** (no back-to-back guard-days) and **night spacing** (night → day two
+days later) — still read the true immediately-preceding blocks even across the week boundary, so a
+Saturday→Sunday back-to-back can't slip through. (Membership is by `block_date`, which uniquely places
+each 24h block in one week.)
+
 ---
 
 ## 6. Weekly generation

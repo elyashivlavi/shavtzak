@@ -167,13 +167,15 @@ function getBootstrap(pw) {
     roster: roster
   };
   if (ctx.isAdmin) {
-    var base = fairnessBaseRows_();               // ארכיון קבוע + מפורסם (דדופ) — הבסיס להוגנות
+    // הוגנות נספרת רק בשבוע הנוכחי (ראשון 12:00 → ראשון הבא 12:00); תאריכים מחוץ לשבוע מסוננים.
+    var week = fairnessWeek_();
+    var base = windowToWeek_(fairnessBaseRows_(), week);   // ארכיון+מפורסם מסונן לשבוע — הבסיס להוגנות
     var draftRows = readTable(SHEET_DRAFT);
     // תצוגת "כולל טיוטה": הטיוטה מחליפה בלוקים קיימים באותו תאריך (כמו בפרסום), לא מצטברת עליהם —
     // אחרת תאריך שתוכנן מחדש נספר פעמיים (גם מהמפורסם הישן וגם מהטיוטה) ומזייף רצף ימי-עמדה.
     var draftDates = {};
     draftRows.forEach(function (r) { draftDates[r.block_date] = true; });
-    var withDraft = base.filter(function (r) { return !draftDates[r.block_date]; }).concat(draftRows);
+    var withDraft = windowToWeek_(base.filter(function (r) { return !draftDates[r.block_date]; }).concat(draftRows), week);
     out.soldiers = readTable(SHEET_SOLDIERS);
     out.draft = buildScheduleView_(draftRows);
     out.stats = statsFromRows_(base);
@@ -196,7 +198,8 @@ function generateNextRotation(forcePatrolIds, pw) {
   (forcePatrolIds || []).forEach(function (id) { forced[id] = true; });
 
   var blockDate = nextBlockDate_();
-  var block = buildBlockRows_(blockDate, statsMap_(), forced, soldierWindows_(), cfg);
+  // הוגנות מבוססת שבוע: צבירת השעות נזרעת מבסiס השבוע של הבלוק (איפוס שבועי), לא מכל ההיסטוריה.
+  var block = buildBlockRows_(blockDate, fairnessStatsMap_(blockDate), forced, soldierWindows_(), cfg);
   writeTable(SHEET_DRAFT, block.rows);
   return { ok: true, blockDate: blockDate, guards: block.guards.map(function (g) { return g.name; }) };
 }
@@ -265,7 +268,9 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     }
   }
 
-  var stats = statsMap_(), windows = soldierWindows_();
+  // הוגנות מבוססת שבוע: צבירת השעות נזרעת מבסיס-השבוע של תחילת הטווח (איפוס שבועי) ולא מכל ההיסטוריה.
+  // (זריעת כללי-הבטיחות guardedPrev/nightByDate למטה נשארת על היסטוריה מלאה — מנוחה/מרווח-לילה חוצי-שבוע.)
+  var stats = fairnessStatsMap_(startDate), windows = soldierWindows_();
   var squads = squadGroups_();               // קבוצות מחלקה (nudge רך: לשבץ יחד)
   var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך הטווח (איזון + סבב לילות)
   var guardedPrev = {};                      // מי שמר בבלוק הקודם (כלל מנוחה: אין יומיים עמדה רצופים)
@@ -804,11 +809,56 @@ function fairnessBaseRows_() {
   return out;
 }
 
-function recomputeStats_() { archivePast_(); writeTable(SHEET_STATS, statsFromRows_(fairnessBaseRows_())); }
+function recomputeStats_() { archivePast_(); writeTable(SHEET_STATS, statsFromRows_(fairnessWeekRows_())); }
 
 function statsMap_() {
   var m = {};
   readTable(SHEET_STATS).forEach(function (r) { m[r.soldier_id] = r; });
+  return m;
+}
+
+// ================================================================
+//  חלון שבוע ההוגנות — ראשון 12:00 → ראשון הבא 12:00 (מתגלגל אוטומטית)
+//  ההוגנות נספרת רק בתוך השבוע; תאריכים מחוץ לשבוע לא נספרים.
+//  חשוב: זה חל על *ספירת ההוגנות* (שעות/יום-לילה/רצף/אחוזים) ועל בסיס ההפקה,
+//  אך לא על זריעת כללי-הבטיחות (מנוחה/מרווח-לילה) שנשארים על היסטוריה מלאה.
+// ================================================================
+
+/** גבולות שבוע ההוגנות עבור block_date נתון: ראשון (day 0) עד ראשון הבא (סוף לא-כולל). */
+function weekBoundsFor_(refBlockDate) {
+  var dow = parseDate_(refBlockDate).getDay();  // ראשון=0 ... שבת=6
+  var start = advanceDate_(refBlockDate, -dow);
+  return { start: start, end: advanceDate_(start, 7) };
+}
+
+/** block_date של הבלוק המכיל את "עכשיו" (אם השעה < עיגון, הבלוק התחיל אתמול ב-12:00). */
+function currentBlockDate_(anchorHour) {
+  var now = new Date();
+  var d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (now.getHours() < anchorHour) d.setDate(d.getDate() - 1);
+  return fmtDate_(d);
+}
+
+/** שבוע ההוגנות ביחס ל-refBlockDate (ברירת מחדל: השבוע הנוכחי לפי "עכשיו"). */
+function fairnessWeek_(refBlockDate) {
+  var anchorHour = parseInt(getConfig('anchor_hour'), 10) || 12;
+  return weekBoundsFor_(refBlockDate || currentBlockDate_(anchorHour));
+}
+
+/** מסנן שורות שיבוץ לשבוע נתון לפי block_date (start כולל, end לא-כולל). */
+function windowToWeek_(rows, week) {
+  return rows.filter(function (r) { return r.block_date >= week.start && r.block_date < week.end; });
+}
+
+/** בסיס ההוגנות מסונן לשבוע (ברירת מחדל: השבוע הנוכחי) — להוגנות ולצבירת השעות. */
+function fairnessWeekRows_(refBlockDate) {
+  return windowToWeek_(fairnessBaseRows_(), fairnessWeek_(refBlockDate));
+}
+
+/** מפת הוגנות (id→שורת stats) מחושבת חי מבסיס-השבוע — לשימוש בהפקה (איפוס שבועי). */
+function fairnessStatsMap_(refBlockDate) {
+  var m = {};
+  statsFromRows_(fairnessWeekRows_(refBlockDate)).forEach(function (r) { m[r.soldier_id] = r; });
   return m;
 }
 
@@ -1024,7 +1074,7 @@ function shiftDurationHours_(start, end) {
  * ימי עמדה + ימי פטרול (זרים), standby_pct = ימי-עמדה/נוכחות, patrol_pct = ימי-פטרול/נוכחות
  * — כדי להשוות הוגנות בין חיילים שנכחו זמן שונה.
  */
-function dutyBreakdown_() { return dutyFromRows_(fairnessBaseRows_()); }
+function dutyBreakdown_() { return dutyFromRows_(fairnessWeekRows_()); }
 
 /** פירוק עומסים מתוך שורות שיבוץ נתונות (טהור). */
 function dutyFromRows_(pub) {

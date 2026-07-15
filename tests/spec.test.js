@@ -180,6 +180,42 @@ test('generateRange keeps מחלקה members together on at least one guard-day'
   assert(maxTogether >= 2, 'expected squad members to share a guard-day, got max ' + maxTogether);
 });
 
+// §5 fairness week window (Sunday 12:00 → next Sunday 12:00)
+test('weekBoundsFor_ spans Sunday..next Sunday for any weekday', () => {
+  // 2026-07-12=Sun, 15=Wed, 18=Sat, 19=Sun
+  ['2026-07-12', '2026-07-15', '2026-07-18'].forEach((d) => {
+    const w = G.weekBoundsFor_(d);
+    assert.strictEqual(w.start, '2026-07-12', d + ' start');
+    assert.strictEqual(w.end, '2026-07-19', d + ' end');
+  });
+  const next = G.weekBoundsFor_('2026-07-19');
+  assert.strictEqual(next.start, '2026-07-19');
+  assert.strictEqual(next.end, '2026-07-26');
+});
+
+test('windowToWeek_ keeps in-week block_dates, drops others (end exclusive)', () => {
+  const rows = ['2026-07-11', '2026-07-12', '2026-07-15', '2026-07-18', '2026-07-19']
+    .map((d) => ({ block_date: d, position: 'guard' }));
+  const w = { start: '2026-07-12', end: '2026-07-19' };
+  const kept = G.windowToWeek_(rows, w).map((r) => r.block_date);
+  assert.deepStrictEqual(kept, ['2026-07-12', '2026-07-15', '2026-07-18']);
+});
+
+test('fairness stats count only the windowed week', () => {
+  const mk = (d, id, start, end) => ({ block_date: d, position: 'guard', soldier_id: id, soldier_name: id, start, end });
+  const rows = [
+    mk('2026-07-05', 'a', '12:00', '15:00'), // prev week — must be ignored
+    mk('2026-07-13', 'a', '12:00', '15:00'), // in week
+    mk('2026-07-14', 'a', '15:00', '18:00'), // in week
+    mk('2026-07-20', 'a', '12:00', '15:00'), // next week — ignored
+  ];
+  const w = { start: '2026-07-12', end: '2026-07-19' };
+  const stats = G.statsFromRows_(G.windowToWeek_(rows, w)).find((s) => s.soldier_id === 'a');
+  assert.strictEqual(stats.guard_blocks, 2, 'only 2 in-week guard-days');
+  assert.strictEqual(stats.cumulative_guard_hours, 6, 'only in-week hours (3+3)');
+  assert.strictEqual(stats.last_guard_block, '2026-07-14', 'last in-week block');
+});
+
 // §3.4 config has DB-driven shift hours + secret
 test('config seeded with shift_starts and admin_password', () => {
   const cfg = G.getConfigAll();
