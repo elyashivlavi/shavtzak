@@ -584,6 +584,23 @@ test('generateWeek: no two consecutive guard-days per soldier', () => {
   });
 });
 
+// prefer no two consecutive patrol-days per guard-eligible soldier (soft: stronger than מחלקה, weaker than the guard-rest rule)
+test('generateWeek: guard-eligible patrol runs stay short (no long patrol streaks)', () => {
+  reset();
+  G.generateWeek(7, 'admin1234');
+  const rows = G.readTable('schedule_draft');
+  const elig = {};
+  G.readTable('soldiers').forEach((s) => { if (String(s.guard_eligible).toUpperCase() === 'TRUE') elig[s.id] = s.name; });
+  const dates = [...new Set(rows.map((r) => r.block_date))].sort();
+  const pos = {}; // id -> block_date -> 'g'|'p'
+  rows.forEach((r) => { (pos[r.soldier_id] = pos[r.soldier_id] || {})[r.block_date] = r.position === 'guard' ? 'g' : (pos[r.soldier_id][r.block_date] || 'p'); });
+  Object.keys(elig).forEach((id) => {
+    let run = 0, mx = 0;
+    dates.forEach((d) => { if ((pos[id] || {})[d] === 'p') { run++; mx = Math.max(mx, run); } else run = 0; });
+    assert(mx <= 2, elig[id] + ' has ' + mx + ' consecutive patrol-days');
+  });
+});
+
 // §3.2 shift_date = real calendar date of the shift
 test('shift_date resolves after-midnight shifts to block_date+1', () => {
   reset();

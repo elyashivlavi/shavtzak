@@ -161,6 +161,17 @@ Placement (who guards, in which shift) must satisfy, in order:
     Squad members who aren't picked for guard remain on patrol together automatically. The rest rule
     (§5.6) still applies, so a full squad that guards together rests together the next day (a large
     squad naturally alternates halves across days).
+11. **No two patrol-days in a row (soft preference):** prefer **not** to leave a guard-eligible
+    soldier on **patrol two blocks in a row** — a soldier who was on patrol the previous block is
+    preferred for guard this block (over one who wasn't), **within the same balance tier** (equal
+    guard-days-so-far). **Priority:** this is **stronger than the מחלקה cohesion nudge (§5.10)** —
+    the squad swap will not bench a soldier onto a second consecutive patrol-day if another swap-out
+    is available — but **weaker than the guard-rest rule (§5.6)**, which still forbids two guard-days
+    in a row outright. Best-effort: on a tight roster (more guard-eligible present than guard slots)
+    some soldiers must patrol on consecutive days; the preference only keeps those runs as short as
+    the balance allows. The **consecutive-patrol-days** figure in the הוגנות "עמדה רצופה" card
+    surfaces the result (informational, no hard target). Applies only to guard-eligible soldiers —
+    those never on positions (e.g. אסי פרץ, שמואל אטלי) are always on patrol by design.
 
 Fairness stats are always **rebuilt from the immutable history base** so manual edits are reflected correctly.
 

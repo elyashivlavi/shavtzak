@@ -274,6 +274,7 @@ function buildDraftRange_(startDate, n, forced, cfg) {
   var squads = squadGroups_();               // קבוצות מחלקה (nudge רך: לשבץ יחד)
   var weekGuardDays = {}, weekNight = {};   // מונים מצטברים לאורך הטווח (איזון + סבב לילות)
   var guardedPrev = {};                      // מי שמר בבלוק הקודם (כלל מנוחה: אין יומיים עמדה רצופים)
+  var patrolledPrev = {};                    // מי היה בפטרול בבלוק הקודם (העדפה רכה: אין יומיים פטרול רצופים — חזק ממחלקה, חלש מכלל-המנוחה)
   // nightByDate[block_date] = { id:1 } — מי היה בעמדת לילה באותו יום-עמדה. מזין מהבסיס (ארכיון+מפורסם)
   // כדי שכלל "לילה → יום כעבור יומיים" יפעל גם בתחילת הטווח, ומתעדכן לכל בלוק שמיוצר.
   var nightByDate = {};
@@ -282,6 +283,7 @@ function buildDraftRange_(startDate, n, forced, cfg) {
   var prevDay = advanceDate_(bd, -1);
   fairnessBaseRows_().forEach(function (r) {
     if (r.block_date === prevDay && r.position === 'guard') guardedPrev[r.soldier_id] = 1;
+    if (r.block_date === prevDay && r.position === 'patrol') patrolledPrev[r.soldier_id] = 1;
     if (r.position === 'guard' && parseHourNum_(r.start) >= 0 && parseHourNum_(r.start) < 6) {
       (nightByDate[r.block_date] = nightByDate[r.block_date] || {})[r.soldier_id] = 1;
     }
@@ -298,6 +300,9 @@ function buildDraftRange_(startDate, n, forced, cfg) {
     pool.sort(function (a, b) {
       var ga = weekGuardDays[a.id] || 0, gb = weekGuardDays[b.id] || 0;
       if (ga !== gb) return ga - gb;
+      // העדפה רכה: מי שהיה אתמול בפטרול קודם לעמדה — לא לתת יומיים פטרול רצופים (בתוך אותה שכבת-איזון).
+      var pa = patrolledPrev[a.id] ? 0 : 1, pb = patrolledPrev[b.id] ? 0 : 1;
+      if (pa !== pb) return pa - pb;
       var ha = stats[a.id] ? Number(stats[a.id].cumulative_guard_hours) : 0;
       var hb = stats[b.id] ? Number(stats[b.id].cumulative_guard_hours) : 0;
       if (ha !== hb) return ha - hb;
@@ -331,14 +336,20 @@ function buildDraftRange_(startDate, n, forced, cfg) {
         presentIds.forEach(function (id) {
           if (chosenSet[id]) return;
           var cand = poolById[id];
+          var pick = -1, fallback = -1;
           for (var k = chosen.length - 1; k >= 0; k--) {
             var g = chosen[k];
             if (sq.ids[g.id]) continue;               // לא מוציאים חבר מחלקה
             if (gd_(g.id) !== gd_(cand.id)) continue; // רק אותה שכבת-איזון → עלות אפס באיזון
-            delete chosenSet[g.id]; chosen.splice(k, 1);
-            chosen.push(cand); chosenSet[cand.id] = 1;
-            break;
+            // כלל-הפטרול חזק ממחלקה: לא מדיחים לפטרול מי שכבר היה אתמול בפטרול (יומיים רצופים). נעדיף אחר.
+            if (patrolledPrev[g.id]) { if (fallback < 0) fallback = k; continue; }
+            pick = k; break;
           }
+          if (pick < 0) pick = fallback;              // אין ברירה — כל המועמדים היו אתמול בפטרול
+          if (pick < 0) return;
+          var gout = chosen[pick];
+          delete chosenSet[gout.id]; chosen.splice(pick, 1);
+          chosen.push(cand); chosenSet[cand.id] = 1;
         });
       });
     }
@@ -421,6 +432,8 @@ function buildDraftRange_(startDate, n, forced, cfg) {
 
     guardedPrev = {};
     ordered.forEach(function (g) { weekGuardDays[g.id] = (weekGuardDays[g.id] || 0) + 1; guardedPrev[g.id] = 1; });
+    patrolledPrev = {};
+    patrol.forEach(function (s) { patrolledPrev[s.id] = 1; });   // עדכון לבלוק הבא: מי שבפטרול היום
     nightList.forEach(function (p) {
       var g = ordered[p];
       weekNight[g.id] = (weekNight[g.id] || 0) + 1;
