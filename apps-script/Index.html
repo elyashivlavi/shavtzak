@@ -162,7 +162,7 @@ function callAdmin(fn, args, cb) {
 function loadBoot(cb) {
   busy(true);
   google.script.run
-    .withSuccessHandler(function (boot) { busy(false); STATE.boot = boot; if (cb) cb(); })
+    .withSuccessHandler(function (boot) { busy(false); lastRefresh = Date.now(); STATE.boot = boot; if (cb) cb(); })
     .withFailureHandler(function (err) {
       busy(false);
       document.getElementById('loading').textContent = 'שגיאה בטעינה: ' + (err.message || err);
@@ -170,8 +170,28 @@ function loadBoot(cb) {
     .getBootstrap(STATE.adminPw);
 }
 
-window.onload = function () { loadBoot(render); };
+window.onload = function () { loadBoot(render); startAutoRefresh(); };
 function reload() { loadBoot(render); }
+
+// Auto-refresh so data stays fresh: every 15 min, and on refocus after >5 min away.
+var AUTO_REFRESH_MS = 15 * 60 * 1000;
+var REFOCUS_STALE_MS = 5 * 60 * 1000;
+var lastRefresh = Date.now();
+function silentRefresh() {
+  google.script.run
+    .withSuccessHandler(function (boot) { lastRefresh = Date.now(); STATE.boot = boot; render(); })
+    .withFailureHandler(function () {})
+    .getBootstrap(STATE.adminPw);
+}
+function startAutoRefresh() {
+  setInterval(silentRefresh, AUTO_REFRESH_MS);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - lastRefresh > REFOCUS_STALE_MS) silentRefresh();
+  });
+  window.addEventListener('focus', function () {
+    if (Date.now() - lastRefresh > REFOCUS_STALE_MS) silentRefresh();
+  });
+}
 
 function render() {
   var b = STATE.boot;
