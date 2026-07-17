@@ -435,6 +435,36 @@ test('generateWeek: single קלע is NOT forced to patrol', () => {
   assert(guardsSomeBlock, 'sole קלע should be allowed to guard, not benched to patrol');
 });
 
+// patrol is DERIVED per 12h window, never stored: guards (standby 24h) excluded from both
+// windows; every other present active soldier is on both morning + evening patrol.
+test('patrol is not stored; derived = present non-guards per window, guards excluded', () => {
+  reset();
+  G.generateWeek(7, 'admin1234');
+  const stored = G.readTable('schedule_draft');
+  assert(stored.length > 0, 'draft empty');
+  assert(stored.every((r) => r.position === 'guard'), 'only guard rows may be stored (patrol is derived)');
+
+  const windows = G.soldierWindows_();
+  const anchor = parseInt(G.getConfig('anchor_hour'), 10);
+  const byBlock = {};
+  G.derivePatrolRows_(stored).forEach((r) => {
+    const b = (byBlock[r.block_date] = byBlock[r.block_date] || { guards: new Set(), morning: new Set(), evening: new Set() });
+    if (r.position === 'guard') b.guards.add(r.soldier_id); else b[r.slot].add(r.soldier_id);
+  });
+  Object.keys(byBlock).forEach((bd) => {
+    const b = byBlock[bd];
+    const instant = G.blockStartInstant_(bd, anchor);
+    const expected = G.readTable('soldiers')
+      .filter((s) => G.truthy_(s.active) && G.availableAt_(windows[s.id], instant) && !b.guards.has(s.id))
+      .map((s) => s.id).sort();
+    assert(expected.length > 0, 'no non-guards to patrol in ' + bd);
+    const exp = JSON.stringify(expected);
+    assert.strictEqual(JSON.stringify([...b.morning].sort()), exp, 'morning patrol != present non-guards in ' + bd);
+    assert.strictEqual(JSON.stringify([...b.evening].sort()), exp, 'evening patrol != present non-guards in ' + bd);
+    b.guards.forEach((id) => assert(!b.morning.has(id) && !b.evening.has(id), 'guard on patrol in ' + bd));
+  });
+});
+
 // rule: a רחפן on guard never holds the 06:00-09:00 or 18:00-21:00 shift
 test('generateWeek keeps רחפן off the 06:00/18:00 guard shifts', () => {
   reset();
