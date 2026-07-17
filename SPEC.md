@@ -60,6 +60,8 @@ be compared chronologically.
 
 ### 3.2 Schedule entry (used for `draft`, `published`, and `past`)
 A flat list of rows; a "block" is all rows sharing a `block_date`. The same shape backs three stores: `schedule_draft` (admin-private edit buffer), `schedule_published` (soldier-visible), and **`schedule_past`** — an **immutable, append-only** archive of blocks that have already fully elapsed. `schedule_past` is never edited or overwritten, only appended to; it is the frozen ground-truth base for fairness so history can't be altered by later edits or regeneration.
+
+> **Only `guard` rows are stored.** `patrol` rows are **not persisted** — patrol is **derived** at read time (see §4): for each block, every present active soldier who is not on a guard slot in that block. This means the stores hold only guard shifts, and patrol is always consistent with the current guards (a manual guard swap re-derives patrol automatically, with no orphaned rows). The `patrol` shape below still describes the **derived** rows that consumers (board, personal view, fairness) receive.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `block_date` | date-string `YYYY-MM-DD` | The 12:00-anchored 24-hour block this row belongs to (grouping/rotation key). |
@@ -112,8 +114,8 @@ with fewer than 2 resolvable members is inert. Seeded with one squad: commander 
   guard does an equal number of shifts spread across the day (default: 2 shifts of 3h, 6h total,
   with rest between them).
 - Every guard is on **standby** (`standby=true`) for the entire 24h block.
-- All other **present, active** soldiers are on **patrol** (morning + evening).
-- `guard_eligible=false` and forced-patrol soldiers are never placed on guard.
+- **Patrol is derived, not stored, and defined per 12-hour window** (rather than being written out as explicit rows): by default anyone who is **not** on a guard slot/standby during the relevant 12 hours is on that window's patrol. Concretely — the **morning** patrol (00:00–12:00 window) and **evening** patrol (12:00–00:00 window) each = every **present, active** soldier not occupied by a guard slot/standby in that window. Because each guard is on standby the full 24h, guards never appear on either patrol; every other present soldier appears on both. No explicit DB entries are needed — patrol is computed from the guard rows + the soldiers' presence windows wherever it is shown.
+- `guard_eligible=false` and forced-patrol soldiers are never placed on guard (so they always fall into the derived patrol).
 
 ---
 
@@ -221,7 +223,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
   - **כוננות (Standby)** — the standby soldiers, shown as **two sets**: **עד 12:00** (the previous block's guards) and **מ-12:00** (this block's guards). A calendar day is covered by two consecutive blocks.
   - **פטרול (Patrol)** — the patrol soldiers of the **selected calendar day** (not the block), split into **two labeled sets — בוקר then ערב**. **בוקר** = the 06:00 morning patrol of that day, which belongs to the **previous** 12:00-block (`slot=morning`); **ערב** = the 18:00 evening patrol of that day, from the current block (`slot=evening`). Because the two sets come from different blocks they are usually **different people** (same day-framing as the עמדה table). Each soldier appears once per set; if there is no previous block, בוקר shows "—".
 - If no schedule exists for the chosen date, show a clear empty message.
-- **Admin inline switch:** an admin sees each guard slot as a dropdown and can swap the assigned soldier directly on the published board. On save the server **rejects any change that double-books a soldier at an overlapping time** (a soldier may not be in two positions at once); it also keeps guard/patrol consistent (the incoming soldier is removed from patrol; the displaced one is moved to patrol) and recomputes fairness stats.
+- **Admin inline switch:** an admin sees each guard slot as a dropdown and can swap the assigned soldier directly on the published board. On save the server **rejects any change that double-books a soldier at an overlapping time** (a soldier may not be in two positions at once) and recomputes fairness stats. Guard/patrol consistency is automatic: since patrol is **derived** (§3.2/§4), the incoming soldier drops off patrol and the displaced one reappears on it with no bookkeeping.
 - **On-call (כוננות):** on-call = the block's guards, so the כוננות card is **read-only** (shown to everyone, not editable even in admin) — it's derived from the עמדה shifts and updates automatically when the guard slots change.
 - **Loading indicator:** any server round-trip that refreshes data (entering admin mode, editing a shift, publishing, generating, etc.) shows a spinner overlay until it completes.
 

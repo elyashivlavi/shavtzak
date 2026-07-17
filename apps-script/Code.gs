@@ -162,22 +162,25 @@ function getBootstrap(pw) {
   var out = {
     user: ctx,
     config: cfg,
-    published: buildScheduleView_(readTable(SHEET_PUBLISHED)),
+    published: buildScheduleView_(derivePatrolRows_(readTable(SHEET_PUBLISHED), cfg)),
     hasDraft: readTable(SHEET_DRAFT).length > 0,
     roster: roster
   };
   if (ctx.isAdmin) {
     // הוגנות נספרת רק בשבוע הנוכחי (ראשון 12:00 → ראשון הבא 12:00); תאריכים מחוץ לשבוע מסוננים.
     var week = fairnessWeek_();
-    var base = windowToWeek_(fairnessBaseRows_(), week);   // ארכיון+מפורסם מסונן לשבוע — הבסיס להוגנות
+    var baseRaw = windowToWeek_(fairnessBaseRows_(), week);   // ארכיון+מפורסם מסונן לשבוע — הבסיס להוגנות
     var draftRows = readTable(SHEET_DRAFT);
     // תצוגת "כולל טיוטה": הטיוטה מחליפה בלוקים קיימים באותו תאריך (כמו בפרסום), לא מצטברת עליהם —
     // אחרת תאריך שתוכנן מחדש נספר פעמיים (גם מהמפורסם הישן וגם מהטיוטה) ומזייף רצף ימי-עמדה.
     var draftDates = {};
     draftRows.forEach(function (r) { draftDates[r.block_date] = true; });
-    var withDraft = windowToWeek_(base.filter(function (r) { return !draftDates[r.block_date]; }).concat(draftRows), week);
+    var withDraftRaw = windowToWeek_(baseRaw.filter(function (r) { return !draftDates[r.block_date]; }).concat(draftRows), week);
+    // פטרול נגזר (לא מאוחסן) — נחוץ לספירת הפטרול בהוגנות. שעות העמדה ב-statsFromRows_ מתעלמות מפטרול.
+    var base = derivePatrolRows_(baseRaw, cfg);
+    var withDraft = derivePatrolRows_(withDraftRaw, cfg);
     out.soldiers = readTable(SHEET_SOLDIERS);
-    out.draft = buildScheduleView_(draftRows);
+    out.draft = buildScheduleView_(derivePatrolRows_(draftRows, cfg));
     out.stats = statsFromRows_(base);
     out.statsDraft = statsFromRows_(withDraft);   // כולל טיוטה
     out.duty = dutyFromRows_(base);
@@ -283,11 +286,18 @@ function buildDraftRange_(startDate, n, forced, cfg) {
   var prevDay = advanceDate_(bd, -1);
   fairnessBaseRows_().forEach(function (r) {
     if (r.block_date === prevDay && r.position === 'guard') guardedPrev[r.soldier_id] = 1;
-    if (r.block_date === prevDay && r.position === 'patrol') patrolledPrev[r.soldier_id] = 1;
     if (r.position === 'guard' && parseHourNum_(r.start) >= 0 && parseHourNum_(r.start) < 6) {
       (nightByDate[r.block_date] = nightByDate[r.block_date] || {})[r.soldier_id] = 1;
     }
   });
+  // patrolledPrev נגזר (פטרול לא מאוחסן): מי שנכח בבלוק הקודם ולא שמר בו = היה בפטרול.
+  // רק אם לבלוק הקודם היו בכלל שומרים (אחרת אין בלוק קודם ואף אחד לא "היה בפטרול").
+  if (Object.keys(guardedPrev).length) {
+    var prevInstant = blockStartInstant_(prevDay, anchorHour);
+    readTable(SHEET_SOLDIERS).forEach(function (s) {
+      if (truthy_(s.active) && availableAt_(windows[s.id], prevInstant) && !guardedPrev[s.id]) patrolledPrev[s.id] = 1;
+    });
+  }
 
   for (var i = 0; i < n; i++) {
     var instant = blockStartInstant_(bd, anchorHour);
@@ -418,17 +428,9 @@ function buildDraftRange_(startDate, n, forced, cfg) {
         soldier_id: g.id, soldier_name: g.name, standby: 'TRUE', note: ''
       });
     }
+    // פטרול לא נכתב לגיליון — הוא נגזר בתצוגה (derivePatrolRows_): כל חייל נוכח שאינו בעמדה/כוננות
+    // ב-12 השעות הרלוונטיות. כאן מחשבים אותו רק כדי לזרוע patrolledPrev לבלוק הבא (כלל 11).
     var patrol = present.filter(function (s) { return !guardIds[s.id]; });
-    ['morning', 'evening'].forEach(function (part) {
-      var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
-      patrol.forEach(function (s) {
-        rows.push({
-          block_date: bd, shift_date: shiftDate_(bd, time, anchorHour), position: 'patrol', slot: part, start: time, end: '',
-          day_label: part === 'morning' ? 'בוקר' : 'ערב',
-          soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
-        });
-      });
-    });
 
     guardedPrev = {};
     ordered.forEach(function (g) { weekGuardDays[g.id] = (weekGuardDays[g.id] || 0) + 1; guardedPrev[g.id] = 1; });
@@ -491,17 +493,7 @@ function buildBlockRows_(blockDate, stats, forced, windows, cfg) {
       soldier_id: guard.id, soldier_name: guard.name, standby: 'TRUE', note: ''
     });
   }
-  var patrol = soldiers.filter(function (s) { return !guardIds[s.id]; });
-  ['morning', 'evening'].forEach(function (part) {
-    var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
-    patrol.forEach(function (s) {
-      rows.push({
-        block_date: blockDate, shift_date: shiftDate_(blockDate, time, anchorHour), position: 'patrol', slot: part, start: time, end: '',
-        day_label: part === 'morning' ? 'בוקר' : 'ערב',
-        soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
-      });
-    });
-  });
+  // פטרול נגזר בתצוגה (derivePatrolRows_) ולא נכתב לגיליון — לכן מוחזרות רק שורות השמירה.
   return { rows: rows, guards: guards, hoursPerGuard: 24 / guardCount };
 }
 
@@ -594,24 +586,8 @@ function editBoardAssignment(blockDate, slot, newSoldierId, pw) {
   });
   if (!found) throw new Error('המשמרת לא נמצאה.');
 
-  // החייל הנכנס לא יכול להישאר בפטרול באותו בלוק
-  pub = pub.filter(function (r) { return !(r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === newSoldierId); });
-
-  // החייל שיצא — אם אינו שומר יותר בבלוק ואינו בפטרול, הכנס אותו לפטרול (בוקר+ערב) לשמירת עקביות
-  var oldStillGuard = pub.some(function (r) { return r.block_date === blockDate && r.position === 'guard' && r.soldier_id === oldId; });
-  var oldInPatrol = pub.some(function (r) { return r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === oldId; });
-  if (oldId && oldId !== newSoldierId && !oldStillGuard && !oldInPatrol && soldiers[oldId] && truthy_(soldiers[oldId].active)) {
-    ['morning', 'evening'].forEach(function (part) {
-      var ptime = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
-      pub.push({
-        block_date: blockDate, shift_date: shiftDate_(blockDate, ptime, anchorHour), position: 'patrol', slot: part,
-        start: ptime, end: '',
-        day_label: part === 'morning' ? 'בוקר' : 'ערב',
-        soldier_id: oldId, soldier_name: soldiers[oldId].name, standby: '', note: ''
-      });
-    });
-  }
-
+  // פטרול נגזר בתצוגה (derivePatrolRows_): הנכנס לעמדה נגרע מהפטרול אוטומטית, והיוצא חוזר לפטרול
+  // אוטומטית אם הוא פעיל ונוכח — אין צורך לתחזק שורות פטרול כאן.
   var conflict = findDoubleBooking_(pub.filter(function (r) { return r.block_date === blockDate; }), anchorHour);
   if (conflict) throw new Error('התנגשות: ' + conflict + ' משובץ פעמיים באותו זמן.');
 
@@ -643,19 +619,7 @@ function swapGuardPerson(blockDate, oldSoldierId, newSoldierId, pw) {
   });
   if (!found) throw new Error('החייל אינו בעמדות הבלוק.');
 
-  pub = pub.filter(function (r) { return !(r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === newSoldierId); });
-  var oldGuard = pub.some(function (r) { return r.block_date === blockDate && r.position === 'guard' && r.soldier_id === oldSoldierId; });
-  var oldPatrol = pub.some(function (r) { return r.block_date === blockDate && r.position === 'patrol' && r.soldier_id === oldSoldierId; });
-  if (!oldGuard && !oldPatrol && soldiers[oldSoldierId] && truthy_(soldiers[oldSoldierId].active)) {
-    ['morning', 'evening'].forEach(function (part) {
-      var ptime = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
-      pub.push({
-        block_date: blockDate, shift_date: shiftDate_(blockDate, ptime, anchorHour), position: 'patrol', slot: part,
-        start: ptime, end: '', day_label: part === 'morning' ? 'בוקר' : 'ערב',
-        soldier_id: oldSoldierId, soldier_name: soldiers[oldSoldierId].name, standby: '', note: ''
-      });
-    });
-  }
+  // פטרול נגזר בתצוגה (derivePatrolRows_): הנכנס לעמדה נגרע מהפטרול והיוצא חוזר לפטרול אוטומטית.
   var conflict = findDoubleBooking_(pub.filter(function (r) { return r.block_date === blockDate; }), anchorHour);
   if (conflict) throw new Error('התנגשות: ' + conflict + ' משובץ פעמיים באותו זמן.');
   pub.sort(scheduleSort_);
@@ -879,6 +843,41 @@ function fairnessStatsMap_(refBlockDate) {
 //  בניית תצוגה לממשק
 // ================================================================
 
+/**
+ * גוזר שורות פטרול (בוקר/ערב) מתוך שורות שיבוץ — במקום לאחסן אותן בגיליון.
+ * הכלל: פטרול = כל חייל פעיל שנוכח בתחילת הבלוק ואינו בעמדה/כוננות באותו בלוק. השומרים בכוננות
+ * 24ש' (12:00→12:00), לכן מי שבעמדה ב-12 השעות הרלוונטיות לא נכנס לפטרול — התוצאה תלויה רק בשומרים.
+ * מסיר שורות פטרול קיימות (כולל ארכיון ישן) וגוזר מחדש, כדי שהתצוגה תשקף תמיד את השומרים הנוכחיים.
+ */
+function derivePatrolRows_(rows, cfg) {
+  cfg = cfg || getConfigAll();
+  var anchorHour = parseInt(cfg.anchor_hour, 10);
+  var guardsOnly = rows.filter(function (r) { return r.position !== 'patrol'; });
+  var guardByBlock = {}, order = [];
+  guardsOnly.forEach(function (r) {
+    if (r.position !== 'guard') return;
+    if (!guardByBlock[r.block_date]) { guardByBlock[r.block_date] = {}; order.push(r.block_date); }
+    guardByBlock[r.block_date][r.soldier_id] = 1;
+  });
+  var soldiers = readTable(SHEET_SOLDIERS), windows = soldierWindows_();
+  var out = guardsOnly.slice();
+  order.forEach(function (bd) {
+    var instant = blockStartInstant_(bd, anchorHour), gset = guardByBlock[bd];
+    soldiers.forEach(function (s) {
+      if (!truthy_(s.active) || !availableAt_(windows[s.id], instant) || gset[s.id]) return;
+      ['morning', 'evening'].forEach(function (part) {
+        var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
+        out.push({
+          block_date: bd, shift_date: shiftDate_(bd, time, anchorHour), position: 'patrol', slot: part,
+          start: time, end: '', day_label: part === 'morning' ? 'בוקר' : 'ערב',
+          soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
+        });
+      });
+    });
+  });
+  return out;
+}
+
 /** ממיר שורות גולמיות למבנה מקובץ לפי בלוק (יום) לתצוגה נוחה */
 function buildScheduleView_(rows) {
   rows = rows.slice().sort(scheduleSort_);
@@ -1087,7 +1086,7 @@ function shiftDurationHours_(start, end) {
  * ימי עמדה + ימי פטרול (זרים), standby_pct = ימי-עמדה/נוכחות, patrol_pct = ימי-פטרול/נוכחות
  * — כדי להשוות הוגנות בין חיילים שנכחו זמן שונה.
  */
-function dutyBreakdown_() { return dutyFromRows_(fairnessWeekRows_()); }
+function dutyBreakdown_() { return dutyFromRows_(derivePatrolRows_(fairnessWeekRows_())); }
 
 /** פירוק עומסים מתוך שורות שיבוץ נתונות (טהור). */
 function dutyFromRows_(pub) {
@@ -1310,18 +1309,7 @@ function seedFirstBlock_() {
     });
   }
 
-  var patrol = soldiers.filter(function (s) { return !guardIds[s.id]; });
-  ['morning', 'evening'].forEach(function (part) {
-    var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
-    patrol.forEach(function (s) {
-      rows.push({
-        block_date: blockDate, shift_date: shiftDate_(blockDate, time, anchorHour), position: 'patrol', slot: part,
-        start: time, end: '', day_label: part === 'morning' ? 'בוקר' : 'ערב',
-        soldier_id: s.id, soldier_name: s.name, standby: '', note: ''
-      });
-    });
-  });
-
+  // פטרול נגזר בתצוגה (derivePatrolRows_) — לא נכתב לגיליון. נשמרות רק שורות השמירה.
   writeTable(SHEET_PUBLISHED, rows);
   recomputeStats_();
 }

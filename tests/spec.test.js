@@ -414,7 +414,7 @@ test('generateWeek keeps at least one קלע in patrol every block', () => {
   G.updateSoldier(k1, { skills: ['קלע'] }, 'admin1234');
   G.updateSoldier(k2, { skills: ['קלע'] }, 'admin1234');
   G.generateWeek(7, 'admin1234');
-  const draft = G.readTable('schedule_draft');
+  const draft = G.derivePatrolRows_(G.readTable('schedule_draft'));  // פטרול נגזר, לא מאוחסן
   const kala = new Set([k1, k2]);
   const blocks = {};
   draft.forEach((r) => { (blocks[r.block_date] = blocks[r.block_date] || { patrol: new Set() }); if (r.position === 'patrol') blocks[r.block_date].patrol.add(r.soldier_id); });
@@ -497,11 +497,11 @@ test('findDoubleBooking_ flags overlaps, allows adjacent', () => {
 // §7.2 admin board switch on published schedule
 test('editBoardAssignment swaps guard, de-conflicts patrol, requires admin', () => {
   reset();
-  const pub = G.readTable('schedule_published');
+  const pub = G.derivePatrolRows_(G.readTable('schedule_published'));  // פטרול נגזר, לא מאוחסן
   const grow = pub.find((r) => r.position === 'guard');
   const patrolSoldier = pub.find((r) => r.block_date === grow.block_date && r.position === 'patrol');
   G.editBoardAssignment(grow.block_date, grow.slot, patrolSoldier.soldier_id, 'admin1234');
-  const after = G.readTable('schedule_published');
+  const after = G.derivePatrolRows_(G.readTable('schedule_published'));
   const ng = after.find((r) => r.block_date === grow.block_date && r.position === 'guard' && String(r.slot) === String(grow.slot));
   assert.strictEqual(ng.soldier_id, patrolSoldier.soldier_id);
   assert(!after.some((r) => r.block_date === grow.block_date && r.position === 'patrol' && r.soldier_id === patrolSoldier.soldier_id), 'incoming still on patrol');
@@ -588,7 +588,7 @@ test('generateWeek: no two consecutive guard-days per soldier', () => {
 test('generateWeek: guard-eligible patrol runs stay short (no long patrol streaks)', () => {
   reset();
   G.generateWeek(7, 'admin1234');
-  const rows = G.readTable('schedule_draft');
+  const rows = G.derivePatrolRows_(G.readTable('schedule_draft'));  // פטרול נגזר, לא מאוחסן
   const elig = {};
   G.readTable('soldiers').forEach((s) => { if (String(s.guard_eligible).toUpperCase() === 'TRUE') elig[s.id] = s.name; });
   const dates = [...new Set(rows.map((r) => r.block_date))].sort();
@@ -615,7 +615,7 @@ test('shift_date resolves after-midnight shifts to block_date+1', () => {
 // §7.2 on-call swap: replace a whole guard/standby person across the block
 test('swapGuardPerson replaces a guard across all their block shifts', () => {
   reset();
-  const pub = G.readTable('schedule_published');
+  const pub = G.derivePatrolRows_(G.readTable('schedule_published'));  // פטרול נגזר, לא מאוחסן
   const bd = pub.find((r) => r.position === 'guard').block_date;
   const oldId = pub.find((r) => r.block_date === bd && r.position === 'guard').soldier_id;
   const patrol = pub.find((r) => r.block_date === bd && r.position === 'patrol' && r.soldier_id !== oldId);
