@@ -845,27 +845,32 @@ function fairnessStatsMap_(refBlockDate) {
 
 /**
  * גוזר שורות פטרול (בוקר/ערב) מתוך שורות שיבוץ — במקום לאחסן אותן בגיליון.
- * הכלל: פטרול = כל חייל פעיל שנוכח בתחילת הבלוק ואינו בעמדה/כוננות באותו בלוק. השומרים בכוננות
- * 24ש' (12:00→12:00), לכן מי שבעמדה ב-12 השעות הרלוונטיות לא נכנס לפטרול — התוצאה תלויה רק בשומרים.
+ * הכלל (לכל חלון 12ש' בנפרד): פטרול = כל חייל פעיל שנוכח בתחילת הבלוק ואינו בעמדה/כוננות באותו חלון.
+ * הכוננות מפוצלת לשני חלונות של 12ש': בוקר = 00:00–12:00 (משמרות שתחילתן לפני שעת העיגון),
+ * ערב = 12:00–00:00 (משמרתן החל משעת העיגון). בד"כ שומר עושה משמרת בכל חלון → בכוננות 24ש'; אבל אם
+ * הוחלף ידנית רק באחת ממשמרותיו הוא בכוננות רק ל-12ש' ובחלון השני נכנס לפטרול (ומחליפו בפטרול בחלון שכנגד).
  * מסיר שורות פטרול קיימות (כולל ארכיון ישן) וגוזר מחדש, כדי שהתצוגה תשקף תמיד את השומרים הנוכחיים.
  */
 function derivePatrolRows_(rows, cfg) {
   cfg = cfg || getConfigAll();
   var anchorHour = parseInt(cfg.anchor_hour, 10);
   var guardsOnly = rows.filter(function (r) { return r.position !== 'patrol'; });
+  // סטים נפרדים לכל חלון: מי שבעמדה בחלון הבוקר (start<anchor) לעומת חלון הערב (start>=anchor).
   var guardByBlock = {}, order = [];
   guardsOnly.forEach(function (r) {
     if (r.position !== 'guard') return;
-    if (!guardByBlock[r.block_date]) { guardByBlock[r.block_date] = {}; order.push(r.block_date); }
-    guardByBlock[r.block_date][r.soldier_id] = 1;
+    if (!guardByBlock[r.block_date]) { guardByBlock[r.block_date] = { morning: {}, evening: {} }; order.push(r.block_date); }
+    var win = parseHourNum_(r.start) < anchorHour ? 'morning' : 'evening';
+    guardByBlock[r.block_date][win][r.soldier_id] = 1;
   });
   var soldiers = readTable(SHEET_SOLDIERS), windows = soldierWindows_();
   var out = guardsOnly.slice();
   order.forEach(function (bd) {
     var instant = blockStartInstant_(bd, anchorHour), gset = guardByBlock[bd];
     soldiers.forEach(function (s) {
-      if (!truthy_(s.active) || !availableAt_(windows[s.id], instant) || gset[s.id]) return;
+      if (!truthy_(s.active) || !availableAt_(windows[s.id], instant)) return;
       ['morning', 'evening'].forEach(function (part) {
+        if (gset[part][s.id]) return;   // בעמדה/כוננות בחלון הזה → לא בפטרול של החלון הזה
         var time = part === 'morning' ? cfg.patrol_morning : cfg.patrol_evening;
         out.push({
           block_date: bd, shift_date: shiftDate_(bd, time, anchorHour), position: 'patrol', slot: part,

@@ -435,8 +435,8 @@ test('generateWeek: single קלע is NOT forced to patrol', () => {
   assert(guardsSomeBlock, 'sole קלע should be allowed to guard, not benched to patrol');
 });
 
-// patrol is DERIVED per 12h window, never stored: guards (standby 24h) excluded from both
-// windows; every other present active soldier is on both morning + evening patrol.
+// patrol is DERIVED per 12h window, never stored. Normally a guard holds a shift in BOTH windows
+// (standby 24h) so is excluded from both; every other present active soldier is on both patrols.
 test('patrol is not stored; derived = present non-guards per window, guards excluded', () => {
   reset();
   G.generateWeek(7, 'admin1234');
@@ -463,6 +463,36 @@ test('patrol is not stored; derived = present non-guards per window, guards excl
     assert.strictEqual(JSON.stringify([...b.evening].sort()), exp, 'evening patrol != present non-guards in ' + bd);
     b.guards.forEach((id) => assert(!b.morning.has(id) && !b.evening.has(id), 'guard on patrol in ' + bd));
   });
+});
+
+// on-call/patrol split per 12h window: a guard manually left with only ONE window's shift is on-call
+// for that 12h and on PATROL for the other 12h (and whoever took the other slot, vice-versa).
+test('derivePatrolRows_: guard with a single 12h shift patrols the other window', () => {
+  reset();
+  const anchor = parseInt(G.getConfig('anchor_hour'), 10);
+  const starts = G.shiftStarts_(G.getConfigAll());
+  const bd = '2030-01-06';   // empty presence windows = always available
+  const windows = G.soldierWindows_();
+  const instant = G.blockStartInstant_(bd, anchor);
+  const avail = G.readTable('soldiers').filter((s) => G.truthy_(s.active) && G.availableAt_(windows[s.id], instant));
+  assert(avail.length >= 6, 'need >=6 available soldiers');
+  const g = avail.slice(0, 5);   // g[0..3] normal guards; g[4] takes over one morning slot
+  const rows = starts.map((start, slot) => {
+    const who = slot === 5 ? g[4] : g[slot % 4];   // slot 5 (03:00, morning window): g[1] → g[4]
+    return {
+      block_date: bd, shift_date: G.shiftDate_(bd, start, anchor), position: 'guard', slot: String(slot),
+      start, end: starts[(slot + 1) % starts.length],
+      day_label: parseInt(start, 10) < anchor ? 'למחרת' : 'היום',
+      soldier_id: who.id, soldier_name: who.name, standby: 'TRUE', note: '',
+    };
+  });
+  const der = G.derivePatrolRows_(rows);
+  const onPatrol = (id, win) => der.some((r) => r.position === 'patrol' && r.slot === win && r.soldier_id === id);
+  // g[1] now guards evening only (slot 1) → patrols morning; g[4] guards morning only (slot 5) → patrols evening.
+  assert(onPatrol(g[1].id, 'morning') && !onPatrol(g[1].id, 'evening'), 'evening-only guard should patrol morning only');
+  assert(onPatrol(g[4].id, 'evening') && !onPatrol(g[4].id, 'morning'), 'morning-only guard should patrol evening only');
+  // full guards (both windows) are on neither patrol.
+  [g[0], g[2], g[3]].forEach((s) => assert(!onPatrol(s.id, 'morning') && !onPatrol(s.id, 'evening'), 'full guard must not be on patrol'));
 });
 
 // rule: a רחפן on guard never holds the 06:00-09:00 or 18:00-21:00 shift
@@ -524,8 +554,9 @@ test('findDoubleBooking_ flags overlaps, allows adjacent', () => {
   assert.strictEqual(G.findDoubleBooking_(bad, 12), 'X');
 });
 
-// §7.2 admin board switch on published schedule
-test('editBoardAssignment swaps guard, de-conflicts patrol, requires admin', () => {
+// §7.2 admin board switch on published schedule — single-slot swap splits on-call/patrol by 12h window:
+// the incoming soldier guards only that one window and stays on patrol in the OTHER window (guards 12h, patrols 12h).
+test('editBoardAssignment swaps one slot; incoming guards 12h, patrols the other 12h', () => {
   reset();
   const pub = G.derivePatrolRows_(G.readTable('schedule_published'));  // פטרול נגזר, לא מאוחסן
   const grow = pub.find((r) => r.position === 'guard');
@@ -534,7 +565,11 @@ test('editBoardAssignment swaps guard, de-conflicts patrol, requires admin', () 
   const after = G.derivePatrolRows_(G.readTable('schedule_published'));
   const ng = after.find((r) => r.block_date === grow.block_date && r.position === 'guard' && String(r.slot) === String(grow.slot));
   assert.strictEqual(ng.soldier_id, patrolSoldier.soldier_id);
-  assert(!after.some((r) => r.block_date === grow.block_date && r.position === 'patrol' && r.soldier_id === patrolSoldier.soldier_id), 'incoming still on patrol');
+  const swWin = parseInt(grow.start, 10) < 12 ? 'morning' : 'evening';   // 12h window of the swapped slot
+  const otherWin = swWin === 'morning' ? 'evening' : 'morning';
+  const onPatrol = (win) => after.some((r) => r.block_date === grow.block_date && r.position === 'patrol' && r.slot === win && r.soldier_id === patrolSoldier.soldier_id);
+  assert(!onPatrol(swWin), 'incoming still on patrol in the window it now guards');
+  assert(onPatrol(otherWin), 'incoming should stay on patrol in the other 12h window');
   assert.throws(() => G.editBoardAssignment(grow.block_date, grow.slot, patrolSoldier.soldier_id, 'wrong'));
 });
 

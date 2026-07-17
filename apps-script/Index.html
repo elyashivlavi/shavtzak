@@ -360,7 +360,12 @@ function viewBoard() {
   view.forEach(function (b, i) { if (b.block_date === STATE.boardDate) { block = b; idx = i; } });
   if (!block) return nav + '<div class="card"><p class="muted">אין שיבוץ לתאריך זה. נווט לתאריך אחר או צור שיבוץ.</p></div>';
 
-  var effective = block.patrol.length ? (Object.keys(block.patrol.reduce(function (a, it) { a[it.soldier_id] = 1; return a; }, {})).length + standbySet_(block).length) : standbySet_(block).length;
+  // כוח אפקטיבי = חיילים נבדלים בבלוק (עמדה+פטרול). אחרי פיצול הכוננות ל-12ש' חייל יכול להיות גם בעמדה
+  // בחלון אחד וגם בפטרול בשני — לכן מאחדים ומסירים כפילויות במקום לחבר שני מספרים נפרדים.
+  var effIds = {};
+  block.guard.forEach(function (it) { effIds[it.soldier_id] = 1; });
+  block.patrol.forEach(function (it) { effIds[it.soldier_id] = 1; });
+  var effective = Object.keys(effIds).length;
   var header = '<div class="card now-card"><div><div class="muted">כוח אפקטיבי · ' + esc(block.block_date) + '</div><div class="now-status">' + effective + ' חיילים</div></div>' +
     '<div class="pill count">רוטציה 12:00–12:00</div></div>';
   var isAdmin = STATE.boot.user && STATE.boot.user.isAdmin;
@@ -401,13 +406,20 @@ function wireBoard() {
   });
 }
 
-// רשימת השומרים בכוננות (standby) של בלוק — כל חייל פעם אחת
+// רשימת השומרים בכוננות (standby) של בלוק — כל חייל פעם אחת.
+// win אופציונלי ('morning' = משמרת 00:00–12:00 / 'evening' = 12:00–00:00): כשמצוין, מסנן לפי חלון —
+// שומר בכוננות רק בחלון שבו יש לו משמרת. בלי win מוחזרים כל השומרים (לחישוב כוח אפקטיבי).
 function standbySet_(block) { return standbyPairs_(block).map(function (p) { return p.name; }); }
-function standbyPairs_(block) {
+function standbyPairs_(block, win) {
   if (!block) return [];
   var seen = {}, out = [];
   block.guard.forEach(function (it) {
-    if (truthy(it.standby) && !seen[it.soldier_id]) { seen[it.soldier_id] = 1; out.push({ id: it.soldier_id, name: it.soldier_name }); }
+    if (!truthy(it.standby)) return;
+    if (win) {
+      var m = hhToMin(it.start), isMorning = m != null && m < 720;   // 00:00–12:00
+      if ((win === 'morning') !== isMorning) return;
+    }
+    if (!seen[it.soldier_id]) { seen[it.soldier_id] = 1; out.push({ id: it.soldier_id, name: it.soldier_name }); }
   });
   return out;
 }
@@ -443,9 +455,10 @@ function renderBoardBlock(block, prevBlock, editable) {
   });
   g += '</table>';
 
-  // כוננות — שני סטים ביום: "עד 12:00" (בלוק קודם) ו"מ-12:00" (הבלוק הזה). מנהל יכול להחליף חייל-כוננות שלם.
-  var beforePairs = standbyPairs_(prevBlock);
-  var afterPairs = standbyPairs_(block);
+  // כוננות — שני סטים ביום, כל אחד מחושב בנפרד לפי חלון 12ש': "עד 12:00" = משמרות הבוקר (00:00–12:00)
+  // של הבלוק הקודם; "מ-12:00" = משמרות הערב (12:00–00:00) של הבלוק הזה. שומר מופיע רק בחלון שבו יש לו משמרת.
+  var beforePairs = standbyPairs_(prevBlock, 'morning');
+  var afterPairs = standbyPairs_(block, 'evening');
   var standbyHtml =
     '<div class="muted" style="margin-bottom:6px">עד 12:00</div>' +
     (prevBlock ? onCallHtml_(beforePairs) : '<p class="muted">— (אין בלוק קודם)</p>') +
