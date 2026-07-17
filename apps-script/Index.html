@@ -452,15 +452,20 @@ function renderBoardBlock(block, prevBlock, editable) {
     '<div class="muted" style="margin:14px 0 6px">מ-12:00</div>' +
     onCallHtml_(afterPairs);
 
-  // פטרול — מופרד לערב ובוקר לפי הגיליון (slot=evening/morning), כל חייל פעם אחת בכל סט
-  var evSeen = {}, evening = [], moSeen = {}, morning = [];
+  // פטרול לפי היום הנבחר (לא לפי הבלוק): בוקר = 06:00 של היום (מהבלוק הקודם, slot=morning),
+  // ערב = 18:00 של היום (הבלוק הזה, slot=evening). כך בוקר וערב הם בד"כ אנשים שונים (בלוקים שונים → פטרול שונה).
+  var moSeen = {}, morning = [];
+  if (prevBlock) prevBlock.patrol.forEach(function (it) {
+    if (it.slot === 'morning' && !moSeen[it.soldier_id]) { moSeen[it.soldier_id] = 1; morning.push(it.soldier_name); }
+  });
+  var evSeen = {}, evening = [];
   block.patrol.forEach(function (it) {
-    if (it.slot === 'morning') { if (!moSeen[it.soldier_id]) { moSeen[it.soldier_id] = 1; morning.push(it.soldier_name); } }
-    else { if (!evSeen[it.soldier_id]) { evSeen[it.soldier_id] = 1; evening.push(it.soldier_name); } }
+    if (it.slot === 'evening' && !evSeen[it.soldier_id]) { evSeen[it.soldier_id] = 1; evening.push(it.soldier_name); }
   });
   var patrolHtml =
-    '<div class="muted" style="margin-bottom:6px">ערב</div>' + chipsHtml_(evening, 'patrol') +
-    '<div class="muted" style="margin:14px 0 6px">בוקר</div>' + chipsHtml_(morning, 'patrol');
+    '<div class="muted" style="margin-bottom:6px">בוקר</div>' +
+    (prevBlock ? chipsHtml_(morning, 'patrol') : '<p class="muted">—</p>') +
+    '<div class="muted" style="margin:14px 0 6px">ערב</div>' + chipsHtml_(evening, 'patrol');
 
   return '<div class="block-title">' + hebDay(startDate) + ' ' + fmtDM(startDate) + ' · 00:00 → ' + fmtDM(addDays(startDate, 1)) + ' 12:00 <span class="muted" style="font-weight:400">(36 שעות)</span></div>' +
     '<div class="card"><h2>🎯 עמדה</h2>' + g + '</div>' +
