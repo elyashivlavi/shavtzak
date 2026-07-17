@@ -219,7 +219,7 @@ Hebrew, right-to-left. Light, clean, mobile-first. Two public tabs; three more f
 - For the selected day, **three titled cards**:
   - **עמדה (Position)** — the guard rotation table for the selected day spans **00:00 of that day → 12:00 the next day (36 hours)**: the after-midnight shifts of the previous 12:00-anchored block plus the full current block. Each row shows **weekday (ראשון…שבת)**, date, hours, soldier.
   - **כוננות (Standby)** — the standby soldiers, shown as **two sets**: **עד 12:00** (the previous block's guards) and **מ-12:00** (this block's guards). A calendar day is covered by two consecutive blocks.
-  - **פטרול (Patrol)** — the patrol soldiers as a **single merged list** (no morning/evening split).
+  - **פטרול (Patrol)** — the patrol soldiers as a **single merged list** (no morning/evening split), under a static **החל מ12:00** label (the list belongs to the block starting at 12:00).
 - If no schedule exists for the chosen date, show a clear empty message.
 - **Admin inline switch:** an admin sees each guard slot as a dropdown and can swap the assigned soldier directly on the published board. On save the server **rejects any change that double-books a soldier at an overlapping time** (a soldier may not be in two positions at once); it also keeps guard/patrol consistent (the incoming soldier is removed from patrol; the displaced one is moved to patrol) and recomputes fairness stats.
 - **On-call (כוננות):** on-call = the block's guards, so the כוננות card is **read-only** (shown to everyone, not editable even in admin) — it's derived from the עמדה shifts and updates automatically when the guard slots change.

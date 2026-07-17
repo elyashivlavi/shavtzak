@@ -461,7 +461,7 @@ function renderBoardBlock(block, prevBlock, editable) {
   return '<div class="block-title">' + hebDay(startDate) + ' ' + fmtDM(startDate) + ' · 00:00 → ' + fmtDM(addDays(startDate, 1)) + ' 12:00 <span class="muted" style="font-weight:400">(36 שעות)</span></div>' +
     '<div class="card"><h2>🎯 עמדה</h2>' + g + '</div>' +
     '<div class="card"><h2>🔴 כוננות</h2>' + standbyHtml + '</div>' +
-    '<div class="card"><h2>🚶 פטרול</h2>' + chipsHtml_(patrol, 'patrol') + '</div>';
+    '<div class="card"><h2>🚶 פטרול</h2><div class="muted" style="margin-bottom:6px">החל מ12:00</div>' + chipsHtml_(patrol, 'patrol') + '</div>';
 }
 
 function renderBlock(block, myId, editable) {
